@@ -1,0 +1,10 @@
+## Interface: 11200
+## Title: LazyLock
+## Author: Tuziak
+## Version: 1.2
+## Notes: dots for everyone
+## DefaultState: Enabled
+## LoadOnDemand: 0
+## SavedVariablesPerCharacter: LazyLockDB
+
+LazyLock.lua
