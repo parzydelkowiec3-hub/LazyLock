@@ -394,7 +394,7 @@ function LazyLock:Cast()
 	local strat = LazyLock:GetCombatStrategy(tName, LazyLock:GetGroupType())
 	local ttd = LazyLock:GetTTD()
 
-	if strat ~= "BURST" and (UnitMana("player") / UnitManaMax("player") * 100 < 20) and (UnitHealth("player") / UnitHealthMax("player") * 100 > 50) then
+	if strat ~= "BURST" and (UnitMana("player") / UnitManaMax("player") * 100 < 5) and (UnitHealth("player") / UnitHealthMax("player") * 100 > 50) then
 		if not LazyLock.Settings["IsCasting"] then
 			CastSpellByName("Life Tap")
 			return
@@ -459,35 +459,60 @@ function LazyLock:CastLong()
 		checkName = LazyLock.CurseData[curseName].check
 	end
 
-	if not LazyLock:HasDebuff("target", checkName) 
-	and not LazyLock:GetSpellCooldown(curseName) and not LazyLock.Settings["IsCasting"] and LazyLock:IsWorthCasting(curseName) then
-		CastSpellByName(curseName)
-		LazyLock.Settings[curseName] = GetTime()
+	
+	if not LazyLock:HasDebuff("target", "Curse of Shadow") 
+	and not LazyLock:GetSpellCooldown("Curse of Shadow") 
+	and not LazyLock.Settings["IsCasting"] 
+	and LazyLock:IsWorthCasting("Curse of Shadow") then
+		LazyLock:Debug("Casting Curse of Shadow")
+		CastSpellByName("Curse of Shadow")
+		LazyLock.Settings["Curse of Shadow"] = GetTime()
+		return
+	end
+
+	if not LazyLock:HasDebuff("target", "Curse of Agony") 
+	and not LazyLock:GetSpellCooldown("Curse of Agony") 
+	and not LazyLock.Settings["IsCasting"] 
+	and LazyLock:IsWorthCasting("Curse of Agony") then
+		LazyLock:Debug("Casting Currse of Agony")
+		CastSpellByName("Curse of Agony")
+		LazyLock.Settings["Curse of Agony"] = GetTime()
 		return
 	end
 	
 	if not LazyLock:HasDebuff("target", "Siphon Life") 
-	and not LazyLock:GetSpellCooldown("Siphon Life") and not LazyLock.Settings["IsCasting"] and LazyLock:IsWorthCasting("Siphon Life") then
+	and not LazyLock:GetSpellCooldown("Siphon Life") 
+	and not LazyLock.Settings["IsCasting"] 
+	and LazyLock:IsWorthCasting("Siphon Life") then
 		CastSpellByName("Siphon Life")
 		LazyLock.Settings["Siphon Life"] = GetTime()
 		return
 	end
 	
 	if not LazyLock:HasDebuff("target", "Corruption") 
-	and not LazyLock:GetSpellCooldown("Corruption") and not LazyLock.Settings["IsCasting"] and LazyLock:IsWorthCasting("Corruption") then
+	and not LazyLock:GetSpellCooldown("Corruption") 
+	and not LazyLock.Settings["IsCasting"] 
+	and LazyLock:IsWorthCasting("Corruption") then
 		CastSpellByName("Corruption")
 		LazyLock.Settings["Corruption"] = GetTime()
 		return
 	end
 	
 	if not LazyLock:HasDebuff("target", "Immolate") 
-	and not LazyLock:GetSpellCooldown("Immolate") and not LazyLock.Settings["IsCasting"] and LazyLock:IsWorthCasting("Immolate") then
+	and not LazyLock:GetSpellCooldown("Immolate") 
+	and not LazyLock.Settings["IsCasting"] 
+	and LazyLock:IsWorthCasting("Immolate") then
 		CastSpellByName("Immolate")
 		LazyLock.Settings["Immolate"] = GetTime()
 		return
 	end
 	
-	if LazyLock:GetItemCount(6265) > 0 and not LazyLock:GetSpellCooldown("Shadowburn") and not LazyLock.Settings["IsCasting"] and LazyLock:IsWorthCasting("Shadowburn") then
+	if LazyLock:HasDebuff("target", LazyLockDB.defaultCurse)
+	and LazyLock:HasDebuff("target", "Curse of Agony")
+	and LazyLock:HasDebuff("target", "Siphon Life")
+	and LazyLock:HasDebuff("target", "Corruption")
+	and LazyLock:HasDebuff("target", "Immolate")
+	and LazyLock:GetItemCount(6265) > 0 and not LazyLock:GetSpellCooldown("Shadowburn") and not LazyLock.Settings["IsCasting"] and LazyLock:IsWorthCasting("Shadowburn") then
 		 CastSpellByName("Shadowburn")
 		 return
 	end
@@ -570,13 +595,13 @@ function LazyLock:IsWorthCasting(spell)
 	if histTTD then 
 		ttd = histTTD 
 	end
-	
-	if LazyLock.CurseData[spell] then
-		return ttd > 24
-	end
 
 	if "a" == "a" then
 		return true
+	end
+	
+	if LazyLock.CurseData[spell] then
+		return ttd > 24
 	end
 
 	LazyLock:Debug("Checking if "..spell.." is worth casting on "..UnitName("target").." with TTD of "..ttd)
