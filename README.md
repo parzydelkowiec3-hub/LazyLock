@@ -1,5 +1,7 @@
 # LazyLock
 
+## Remark: shit doesn't work as want it to, so it is kind of buggy now. Feel free to shut up and fix it yourself.
+
 **Author:** Tuziak  
 **Version:** 1.2  
 **WoW Version:** 1.12.1
