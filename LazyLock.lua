@@ -1028,13 +1028,13 @@ LazyLock:SetScript("OnEvent", function()
 			local dmg = LazyLock.TargetTracker.damageDone
 			if dmg > 0 then
 				LazyLock:Print("|cff00ff00LazyLock:|r Killed ["..targetName.."]. My Damage: "..dmg)
+				
+				-- Learn Strategy (Record Duration)
+				local duration = GetTime() - LazyLock.TargetTracker.startTime
+				LazyLock:UpdateMobStats(targetName, duration, UnitHealthMax("target"))
+				
+				LazyLock:Report(true, LazyLockDB.reportToSay)
 			end
-			
-			-- Learn Strategy (Record Duration)
-			local duration = GetTime() - LazyLock.TargetTracker.startTime
-			LazyLock:UpdateMobStats(targetName, duration, UnitHealthMax("target"))
-			
-			LazyLock:Report(true, LazyLockDB.reportToSay)
 		end
 	end
 end)
