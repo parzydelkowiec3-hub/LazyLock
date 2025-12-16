@@ -829,9 +829,10 @@ function LazyLock:GetTTD()
 end
 
 function LazyLock:IsWorthCasting(spell)
-	-- Immunity Check
-	if LazyLock.TargetTracker and LazyLock.TargetTracker.immuneSpells and LazyLock.TargetTracker.immuneSpells[spell] then
-		LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell.." (Target Immune)")
+	-- Immunity Check (Persistent)
+	local tName = UnitName("target")
+	if tName and LazyLockDB.MobStats[tName] and LazyLockDB.MobStats[tName].immuneSpells and LazyLockDB.MobStats[tName].immuneSpells[spell] then
+		LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell.." (Target Immune - Persistent)")
 		return false
 	end
 
@@ -922,10 +923,13 @@ end
 function LazyLock:ParseCombatMessage(msg)
 	-- Check for immunity
 	for spell in string.gfind(msg, "Your (.+) failed%. .+ is immune%.") do
-		if LazyLock.TargetTracker and LazyLock.TargetTracker.name then
-			if not LazyLock.TargetTracker.immuneSpells then LazyLock.TargetTracker.immuneSpells = {} end
-			LazyLock.TargetTracker.immuneSpells[spell] = true
-			LazyLock:Print("|cffff0000[LL Debug]|r Detected Immunity: "..spell)
+		local tName = LazyLock.TargetTracker.name
+		if tName then
+			if not LazyLockDB.MobStats[tName] then LazyLockDB.MobStats[tName] = {} end
+			if not LazyLockDB.MobStats[tName].immuneSpells then LazyLockDB.MobStats[tName].immuneSpells = {} end
+			
+			LazyLockDB.MobStats[tName].immuneSpells[spell] = true
+			LazyLock:Print("|cffff0000[LL Debug]|r Learned Persistent Immunity: "..spell.." for "..tName)
 		end
 	end
 
@@ -980,7 +984,6 @@ LazyLock:SetScript("OnEvent", function()
 				lastUpdate = GetTime(),
 				damageDone = 0,
 				spells = {},
-				immuneSpells = {},
 				predictedTTD = predTTD
 			}
 			
