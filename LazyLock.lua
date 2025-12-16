@@ -19,8 +19,8 @@ LazyLock.Default = {
 
 LazyLock.CurseData = {
 	["Curse of Agony"] = { duration = 24, aliases = {"agony", "coa"}, check = "Curse of Agony" },
-	["Curse of the Elements"] = { duration = 300, aliases = {"elements", "coe"}, check = "Curse of Agony" },
-	["Curse of Shadow"] = { duration = 300, aliases = {"shadow", "shadows", "cos"}, check = "Curse of Agony" },
+	["Curse of the Elements"] = { duration = 300, aliases = {"elements", "coe"}, check = "Curse of the Elements" },
+	["Curse of Shadow"] = { duration = 300, aliases = {"shadow", "shadows", "cos"}, check = "Curse of Shadow" },
 	["Curse of Tongues"] = { duration = 30, aliases = {"tongues", "cot"}, check = "Curse of Tongues" },
 	["Curse of Recklessness"] = { duration = 120, aliases = {"recklessness", "cor"}, check = "Curse of Recklessness" },
 	["Curse of Weakness"] = { duration = 120, aliases = {"weakness", "cow"}, check = "Curse of Weakness" },
@@ -730,11 +730,19 @@ function LazyLock:CastLong()
 	
 	-- Dynamic Curse (defaultCurse) - Renew if < 3s remaining
 	local remaining = LazyLock:GetDebuffTimeRemaining("target", checkName)
+	local cdVal = LazyLock:GetSpellCooldown(curseName)
+	local isCastingVal = LazyLock.Settings["IsCasting"]
+	local isWorthVal = LazyLock:IsWorthCasting(curseName)
+	local timerVal = (GetTime() - (LazyLock.Settings[curseName] or 0)) 
+	
+	-- DEBUG LOGGING FOR CURSE
+	LazyLock:Print("|cffff0000[LL Debug]|r Eval Curse: "..curseName.." Check: "..checkName.." Rem: "..string.format("%.1f", remaining).." CD: "..tostring(cdVal).." Casting: "..tostring(isCastingVal).." Worth: "..tostring(isWorthVal).." Timer: "..string.format("%.1f", timerVal))
+
 	if remaining < 3 
-	and not LazyLock:GetSpellCooldown(curseName) 
-	and not LazyLock.Settings["IsCasting"] 
-	and LazyLock:IsWorthCasting(curseName) 
-	and (GetTime() - (LazyLock.Settings[curseName] or 0) > 2) then
+	and not cdVal 
+	and not isCastingVal 
+	and isWorthVal 
+	and (timerVal > 2) then
 		LazyLock:Print("|cffff0000[LL Debug]|r Renewing "..curseName.." (remaining: "..string.format("%.1f", remaining).."s)")
 		CastSpellByName(curseName)
 		LazyLock.Settings[curseName] = GetTime()
