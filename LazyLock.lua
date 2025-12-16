@@ -870,8 +870,7 @@ function LazyLock:IsWorthCasting(spell)
 	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 6 * thresholdMod).."s")
 		return false
 	elseif spell == "Shadowburn" then
-		if LazyLock:GetItemCount(6265) >= 20 then return true end
-
+		local shardCount = LazyLock:GetItemCount(6265)
 		local hp = UnitHealth("target") / UnitHealthMax("target") * 100
 		local lethal = false
 		
@@ -880,8 +879,23 @@ function LazyLock:IsWorthCasting(spell)
 				lethal = true
 			end
 		end
+
+		-- Abundance: Burn freely
+		if shardCount > 15 then 
+			return (ttd < 15) or (hp < 25) or lethal
+		end
+
+		-- Conservation: Strict Execute Only
+		-- Only use if we are finishing the mob off to save shards
+		if shardCount <= 15 then
+			if lethal then return true end
+			if ttd < 5 then return true end -- Only if dying VERY soon
+			if hp < 5 then return true end  -- True execute range
+			
+			return false
+		end
 		
-		return (ttd < 15) or (hp < 25) or lethal
+		return false
 	end
 	
 	return true
