@@ -687,8 +687,10 @@ function LazyLock:CastNormal()
 	if not hasImmolate
 	and not LazyLock:GetSpellCooldown("Immolate") and not LazyLock.Settings["IsCasting"] and LazyLock:IsWorthCasting("Immolate") 
 	and (GetTime() - (LazyLock.Settings["Immolate"] or 0) > 2) then
+
 		CastSpellByName("Immolate")
 		LazyLock.Settings["Immolate"] = GetTime() 
+		-- Log handled by SPELLCAST_START
 		return true
 	end
 	
@@ -721,7 +723,7 @@ function LazyLock:CastNormal()
 	if LazyLock:IsWorthCasting("Shadow Bolt") then
 		if not LazyLock.Settings["IsCasting"] then
 			CastSpellByName("Shadow Bolt")
-			LazyLock:Print("|cffff0000[LL Debug]|r Casting Shadow Bolt")
+			-- LazyLock:Print("|cffff0000[LL Debug]|r Casting Shadow Bolt") -- Moved to Event
 			return true
 		end
 	end
@@ -1170,6 +1172,7 @@ LazyLock:SetScript("OnEvent", function()
 	
 	elseif event == "SPELLCAST_START" then
 		LazyLock.Settings["IsCasting"] = true
+		LazyLock:Print("|cff00ff00[Action]|r Casting: "..arg1)
 	elseif event == "SPELLCAST_INTERRUPTED" then
 		LazyLock.Settings["IsCasting"] = false
 	elseif event == "SPELLCAST_FAILED" then
