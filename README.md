@@ -29,10 +29,16 @@ Instead of a blind rotation, LazyLock analyzes the target::
   - Unified handling for "Base Curse applies Agony" side-effects.
   - Supports all curses (Doom, Tongues, Elements, etc.).
 
+### 🔮 Soul Shard Farming
+- **Auto Drain Soul:** Configurable mode to automatically use Drain Soul when target < 25% HP.
+- **Priority System:** Overrides other spells to ensure shard collection before mob death.
+- **Toggleable:** Enable only when you need shards with `/ll drain`.
+
 ### 📊 Reporting & Analytics
 - **Detailed Logs:** Tracks damage per spell for every combat.
 - **Reporting:** View last fight stats with `/ll puke`.
 - **Auto-Say:** Toggle announcing damage/strategy to `/say` channel.
+- **Log Management:** Clear old logs to save space with `/ll clear`.
 
 ## Usage
 
@@ -51,6 +57,9 @@ or
 - `/ll puke` - Print detailed report of last fight to Chat.
 - `/ll say [on/off]` - Toggle announcing report to Say channel (Default: Off).
 - `/ll curse [agony/elements/shadow/recklessness/tongues/weakness/doom]` - Set your default curse.
+- `/ll drain [on/off]` - Toggle Drain Soul mode for shard farming (Default: Off).
+- `/ll log [on/off]` - Toggle persistent debug logging (Default: Off).
+- `/ll clear` - Clear all saved debug logs.
 - `/ll check [on/off/toggle]` - Enable/Disable consumable warnings.
 - `/ll export` - Print collected Spell Stats and historical Mob Strategies database.
 

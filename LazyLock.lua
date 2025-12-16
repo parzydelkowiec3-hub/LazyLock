@@ -67,10 +67,13 @@ function LazyLock:Initialize()
 		LazyLockDB.reportToSay = false
 	end
 	if LazyLockDB.logging == nil then
-		LazyLockDB.logging = true
+		LazyLockDB.logging = false
 	end
 	if LazyLockDB.Log == nil then
 		LazyLockDB.Log = {}
+	end
+	if LazyLockDB.drainSoulMode == nil then
+		LazyLockDB.drainSoulMode = false
 	end
 	
 	if LazyLock.Settings == nil then
@@ -83,6 +86,15 @@ function LazyLock:Initialize()
 end
 
 LazyLock.TargetTracker = {
+	name = nil,
+	startTime = 0,
+	damageDone = 0,
+	strategy = "NORMAL",
+	spells = {}
+}
+
+-- Backup of last target's combat data (for Report after target change)
+LazyLock.LastTargetTracker = {
 	name = nil,
 	startTime = 0,
 	damageDone = 0,
@@ -234,6 +246,26 @@ function LazyLock:HasDebuff(unit, name)
 	return false
 end
 
+function LazyLock:GetDebuffTimeRemaining(unit, name)
+	local i = 1
+	while UnitDebuff(unit, i) do
+		LazyLockTooltip:ClearLines()
+		LazyLockTooltip:SetUnitDebuff(unit, i)
+		local debuffName = LazyLockTooltipTextLeft1:GetText()
+		if debuffName and string.find(string.lower(debuffName), string.lower(name)) then
+			-- Get time remaining (texture, stacks, debuffType, duration, timeLeft)
+			local _, _, _, _, timeLeft = UnitDebuff(unit, i)
+			if timeLeft and timeLeft > 0 then
+				local remaining = timeLeft - GetTime()
+				return remaining > 0 and remaining or 0
+			end
+			return 0
+		end
+		i = i + 1
+	end
+	return 0
+end
+
 function LazyLock:GetCombatStrategy(name, gType)
 	local safeTTD = LazyLock:AnalyzeHistory(name, gType)
 	if not safeTTD then return "NORMAL" end 
@@ -308,7 +340,12 @@ function LazyLock:CheckState()
 end
 
 function LazyLock:Report(toChat, toSay)
+	-- Try current target first, fall back to last target
 	local t = LazyLock.TargetTracker
+	if not t.name or t.damageDone == 0 then
+		t = LazyLock.LastTargetTracker
+	end
+	
 	if not t.name or t.damageDone == 0 then
 		if toChat then DEFAULT_CHAT_FRAME:AddMessage("LazyLock: No recent combat data.") end
 		return
@@ -435,10 +472,29 @@ function LazyLock:UseCooldowns()
 	end
 end
 
+
 function LazyLock:Cast()
+	-- Early exit checks - don't run algorithm if we can't cast
+	
+	-- 1. Check if player is dead
+	if UnitIsDead("player") then return end
+	
+	-- 2. Check if player has a valid target
+	if not UnitExists("target") or UnitIsDead("target") or not UnitCanAttack("player", "target") then
+		return
+	end
+	
+	-- 3. Check if already casting (most important - prevents all spam)
+	-- This includes both casting and channeling via SPELLCAST events
+	if LazyLock.Settings["IsCasting"] then return end
+	
+	-- 4. Check if on taxi/flight path
+	if UnitOnTaxi("player") then return end
+	
 	LazyLock:UseCooldowns()
 	if LazyLock.Settings["CastCounter"] == nil then LazyLock.Settings["CastCounter"] = 0 end
 	LazyLock.Settings["CastCounter"] = LazyLock.Settings["CastCounter"] + 1
+
 
 	if not LazyLock:GetSpellCooldown("Death Coil") and not LazyLock.Settings["IsCasting"] then
 		CastSpellByName("Death Coil")
@@ -474,7 +530,30 @@ function LazyLock:Cast()
 
 end
 
+-- Helper function to check if we should use Drain Soul for shard farming
+function LazyLock:ShouldUseDrainSoul()
+	if not LazyLockDB.drainSoulMode then return false end
+	
+	local hp = UnitHealth("target")
+	local maxHp = UnitHealthMax("target")
+	if not hp or not maxHp or maxHp == 0 then return false end
+	
+	local hpPercent = (hp / maxHp) * 100
+	local drainSoulThreshold = 25  -- Use Drain Soul below 25% HP
+	
+	return hpPercent < drainSoulThreshold
+end
+
 function LazyLock:CastBurst()
+	-- Drain Soul for shard collection (only if mode enabled)
+	if LazyLock:ShouldUseDrainSoul() 
+	and not LazyLock:GetSpellCooldown("Drain Soul") 
+	and not LazyLock.Settings["IsCasting"] then
+		LazyLock:Print("|cffff0000[LL Debug]|r Casting Drain Soul for shard")
+		CastSpellByName("Drain Soul")
+		return true
+	end
+	
 	if LazyLock:GetItemCount(6265) > 0 and not LazyLock:GetSpellCooldown("Shadowburn") and not LazyLock.Settings["IsCasting"] then
 		CastSpellByName("Shadowburn")
 		return true
@@ -488,7 +567,20 @@ function LazyLock:CastBurst()
 end
 
 function LazyLock:CastNormal()
-	if not LazyLock:HasDebuff("target", "Immolate")
+	-- Drain Soul for shard collection (only if mode enabled)
+	if LazyLock:ShouldUseDrainSoul() 
+	and not LazyLock:GetSpellCooldown("Drain Soul") 
+	and not LazyLock.Settings["IsCasting"] then
+		LazyLock:Print("|cffff0000[LL Debug]|r Casting Drain Soul for shard")
+		CastSpellByName("Drain Soul")
+		return true
+	end
+	
+	-- Immolate Check with logging
+	local hasImmolate = LazyLock:HasDebuff("target", "Immolate")
+	LazyLock:Print("|cffff0000[LL Debug]|r " .. (hasImmolate and "Found" or "No") .. " debuff Immolate on target")
+	
+	if not hasImmolate
 	and not LazyLock:GetSpellCooldown("Immolate") and not LazyLock.Settings["IsCasting"] and LazyLock:IsWorthCasting("Immolate") 
 	and (GetTime() - (LazyLock.Settings["Immolate"] or 0) > 2) then
 		CastSpellByName("Immolate")
@@ -496,9 +588,21 @@ function LazyLock:CastNormal()
 		return true
 	end
 	
-	if not LazyLock:HasDebuff("target", "Corruption") 
-	and not LazyLock:GetSpellCooldown("Corruption") and not LazyLock.Settings["IsCasting"] and LazyLock:IsWorthCasting("Corruption") 
-	and (GetTime() - (LazyLock.Settings["Corruption"] or 0) > 2) then
+	-- Corruption Check with detailed logging
+	local hasCorruption = LazyLock:HasDebuff("target", "Corruption")
+	LazyLock:Print("|cffff0000[LL Debug]|r " .. (hasCorruption and "Found" or "No") .. " debuff Corruption on target")
+	
+	if hasCorruption then
+		-- Skip - already has debuff
+	elseif LazyLock:GetSpellCooldown("Corruption") then
+		LazyLock:Print("|cffff0000[LL Debug]|r Skipping Corruption: on cooldown")
+	elseif LazyLock.Settings["IsCasting"] then
+		LazyLock:Print("|cffff0000[LL Debug]|r Skipping Corruption: already casting")
+	elseif (GetTime() - (LazyLock.Settings["Corruption"] or 0) <= 2) then
+		LazyLock:Print("|cffff0000[LL Debug]|r Skipping Corruption: cast timer not expired")
+	elseif LazyLock:IsWorthCasting("Corruption") then
+		-- All conditions met, cast it
+		LazyLock:Print("|cffff0000[LL Debug]|r Casting Corruption (NORMAL mode)")
 		CastSpellByName("Corruption")
 		LazyLock.Settings["Corruption"] = GetTime()
 		return true
@@ -518,6 +622,15 @@ function LazyLock:CastNormal()
 end
 
 function LazyLock:CastLong()
+	-- Drain Soul for shard collection (only if mode enabled)
+	if LazyLock:ShouldUseDrainSoul() 
+	and not LazyLock:GetSpellCooldown("Drain Soul") 
+	and not LazyLock.Settings["IsCasting"] then
+		LazyLock:Print("|cffff0000[LL Debug]|r Casting Drain Soul for shard")
+		CastSpellByName("Drain Soul")
+		return true
+	end
+	
 	local curseName = LazyLockDB.defaultCurse or "Curse of Agony"
 	local checkName = curseName
 	if LazyLock.CurseData[curseName] and LazyLock.CurseData[curseName].check then
@@ -525,23 +638,27 @@ function LazyLock:CastLong()
 	end
 
 	
-	if not LazyLock:HasDebuff("target", "Curse of Shadow") 
+	-- Curse of Shadow (defaultCurse) - Renew if < 3s remaining
+	local cosRemaining = LazyLock:GetDebuffTimeRemaining("target", "Curse of Shadow")
+	if cosRemaining < 3 
 	and not LazyLock:GetSpellCooldown("Curse of Shadow") 
 	and not LazyLock.Settings["IsCasting"] 
 	and LazyLock:IsWorthCasting("Curse of Shadow") 
 	and (GetTime() - (LazyLock.Settings["Curse of Shadow"] or 0) > 2) then
-		LazyLock:Print("|cffff0000[LL Debug]|r Casting Curse of Shadow")
+		LazyLock:Print("|cffff0000[LL Debug]|r Renewing Curse of Shadow (remaining: "..string.format("%.1f", cosRemaining).."s)")
 		CastSpellByName("Curse of Shadow")
 		LazyLock.Settings["Curse of Shadow"] = GetTime()
 		return true
 	end
 
-	if not LazyLock:HasDebuff("target", "Curse of Agony") 
+	-- Curse of Agony - Renew if < 3s remaining
+	local coaRemaining = LazyLock:GetDebuffTimeRemaining("target", "Curse of Agony")
+	if coaRemaining < 3 
 	and not LazyLock:GetSpellCooldown("Curse of Agony") 
 	and not LazyLock.Settings["IsCasting"] 
 	and LazyLock:IsWorthCasting("Curse of Agony") 
 	and (GetTime() - (LazyLock.Settings["Curse of Agony"] or 0) > 2) then
-		LazyLock:Print("|cffff0000[LL Debug]|r Casting Curse of Agony")
+		LazyLock:Print("|cffff0000[LL Debug]|r Renewing Curse of Agony (remaining: "..string.format("%.1f", coaRemaining).."s)")
 		CastSpellByName("Curse of Agony")
 		LazyLock.Settings["Curse of Agony"] = GetTime()
 		return true
@@ -552,6 +669,7 @@ function LazyLock:CastLong()
 	and not LazyLock.Settings["IsCasting"] 
 	and LazyLock:IsWorthCasting("Siphon Life") 
 	and (GetTime() - (LazyLock.Settings["Siphon Life"] or 0) > 2) then
+		LazyLock:Print("|cffff0000[LL Debug]|r Casting Siphon Life")
 		CastSpellByName("Siphon Life")
 		LazyLock.Settings["Siphon Life"] = GetTime()
 		return true
@@ -562,6 +680,7 @@ function LazyLock:CastLong()
 	and not LazyLock.Settings["IsCasting"] 
 	and LazyLock:IsWorthCasting("Corruption") 
 	and (GetTime() - (LazyLock.Settings["Corruption"] or 0) > 2) then
+		LazyLock:Print("|cffff0000[LL Debug]|r Casting Corruption")
 		CastSpellByName("Corruption")
 		LazyLock.Settings["Corruption"] = GetTime()
 		return true
@@ -693,25 +812,29 @@ function LazyLock:IsWorthCasting(spell)
 	
 
 	
+	-- Curses: Duration 24s, need at least 8s for worthwhile damage
 	if LazyLock.CurseData[spell] then
-	    if ttd > (24 * thresholdMod) then return true end
-	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 24 * thresholdMod).."s")
+	    if ttd > (8 * thresholdMod) then return true end
+	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 8 * thresholdMod).."s")
 		return false
 	end
 
 	LazyLock:Print("|cffff0000[LL Debug]|r Checking "..spell..". TTD: "..ttd..". Rich: "..tostring(isRich))
 	
+	-- Immolate: 15s duration, instant damage + ticks every 3s. Need 5s minimum (instant + 1 tick)
 	if spell == "Immolate" then
-	    if ttd > (15 * thresholdMod) then return true end
-        LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 15 * thresholdMod).."s")
+	    if ttd > (5 * thresholdMod) then return true end
+        LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 5 * thresholdMod).."s")
 		return false
+	-- Siphon Life: 30s duration, ticks every 3s. Need 9s minimum (3 ticks)
 	elseif spell == "Siphon Life" then
-	    if ttd > (30 * thresholdMod) then return true end
-	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 30 * thresholdMod).."s")
+	    if ttd > (9 * thresholdMod) then return true end
+	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 9 * thresholdMod).."s")
 		return false
+	-- Corruption: 18s duration, ticks every 3s. Need 6s minimum (2 ticks)
 	elseif spell == "Corruption" then
-	    if ttd > (18 * thresholdMod) then return true end
-	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 18 * thresholdMod).."s")
+	    if ttd > (6 * thresholdMod) then return true end
+	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 6 * thresholdMod).."s")
 		return false
 	elseif spell == "Shadowburn" then
 		if LazyLock:GetItemCount(6265) >= 20 then return true end
@@ -798,6 +921,21 @@ LazyLock:SetScript("OnEvent", function()
 			local strat = LazyLock:GetCombatStrategy(tName, gType)
 			LazyLock.TargetTracker.strategy = strat
 		else
+			-- Save current target data before reset
+			if LazyLock.TargetTracker.name and LazyLock.TargetTracker.damageDone > 0 then
+				LazyLock.LastTargetTracker = {
+					name = LazyLock.TargetTracker.name,
+					startTime = LazyLock.TargetTracker.startTime,
+					damageDone = LazyLock.TargetTracker.damageDone,
+					strategy = LazyLock.TargetTracker.strategy,
+					spells = {}
+				}
+				-- Copy spells table
+				for spell, dmg in pairs(LazyLock.TargetTracker.spells) do
+					LazyLock.LastTargetTracker.spells[spell] = dmg
+				end
+			end
+			
 			LazyLock.TargetTracker = { 
 				name = nil,
 				startTime = 0,
@@ -932,10 +1070,28 @@ SlashCmdList["LAZYLOCK"] = function(msg)
 		else LazyLockDB.logging = not LazyLockDB.logging end
 		LazyLock:Print("LazyLock Logging: "..(LazyLockDB.logging and "ON" or "OFF"))
 	
+	elseif cmd == "drain" then
+		if args == "on" then LazyLockDB.drainSoulMode = true
+		elseif args == "off" then LazyLockDB.drainSoulMode = false
+		else LazyLockDB.drainSoulMode = not LazyLockDB.drainSoulMode end
+		LazyLock:Print("LazyLock Drain Soul Mode: "..(LazyLockDB.drainSoulMode and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+	
+	elseif cmd == "clear" then
+		if LazyLockDB.Log then
+			local logCount = 0
+			for _ in pairs(LazyLockDB.Log) do logCount = logCount + 1 end
+			LazyLockDB.Log = {}
+			LazyLock:Print("|cff71d5ffLazyLock:|r Cleared "..logCount.." log entries")
+		else
+			LazyLock:Print("|cff71d5ffLazyLock:|r No logs to clear")
+		end
+	
 	elseif cmd == "help" then
 		LazyLock:Print("|cff71d5ffLazyLock Commands:|r")
 		LazyLock:Print("/ll check [on/off] - Toggle consumable check")
+		LazyLock:Print("/ll clear - Clear all debug logs")
 		LazyLock:Print("/ll curse [name] - Set default curse")
+		LazyLock:Print("/ll drain [on/off] - Toggle Drain Soul mode (shard farming)")
 		LazyLock:Print("/ll export - Show gathered stats")
 		LazyLock:Print("/ll log [on/off] - Toggle persistent logging")
 		LazyLock:Print("/ll puke - Show last fight report (Chat)")
