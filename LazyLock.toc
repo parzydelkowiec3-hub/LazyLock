@@ -5,6 +5,6 @@
 ## Notes: dots for everyone
 ## DefaultState: Enabled
 ## LoadOnDemand: 0
-## SavedVariablesPerCharacter: LazyLockDB
+## SavedVariables: LazyLockDB
 
 LazyLock.lua

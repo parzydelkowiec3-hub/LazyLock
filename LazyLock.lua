@@ -8,6 +8,12 @@ LazyLock.Default = {
 	["Siphon Life"] = 0,
 	["Immolate"] = 0,
 	["IsCasting"] = false,
+	["Curse of the Elements"] = 0,
+	["Curse of Shadow"] = 0,
+	["Curse of Tongues"] = 0,
+	["Curse of Recklessness"] = 0,
+	["Curse of Weakness"] = 0,
+	["Curse of Doom"] = 0,
 	["CastCounter"] = 0,
 }
 
@@ -37,33 +43,43 @@ local eventsToRegister = {
 	"CHAT_MSG_SPELL_PERIODIC_HOSTILEPLAYER_DAMAGE",
 	"CHAT_MSG_SPELL_SELF_DAMAGE",
 	"CHAT_MSG_SPELL_PERIODIC_SELF_DAMAGE",
-	"CHAT_MSG_COMBAT_HOSTILE_DEATH"
+	"CHAT_MSG_COMBAT_HOSTILE_DEATH",
+	"VARIABLES_LOADED"
 }
 
-if LazyLockDB == nil then
-	LazyLockDB = {}
-end
-if LazyLockDB.checkConsumables == nil then
-	LazyLockDB.checkConsumables = true
-end
-if LazyLockDB.defaultCurse == nil then
-	LazyLockDB.defaultCurse = "Curse of Shadow"
-end
-if LazyLockDB.SpellStats == nil then
-	LazyLockDB.SpellStats = {}
-end
-if LazyLockDB.MobStats == nil then
-	LazyLockDB.MobStats = {}
-end
-if LazyLockDB.reportToSay == nil then
-	LazyLockDB.reportToSay = false
-end
-
-if LazyLock.Settings == nil then
-	LazyLock.Settings = {}
-	for k,v in pairs(LazyLock.Default) do
-		LazyLock.Settings[k] = v
+function LazyLock:Initialize()
+	if LazyLockDB == nil then
+		LazyLockDB = {}
 	end
+	if LazyLockDB.checkConsumables == nil then
+		LazyLockDB.checkConsumables = true
+	end
+	if LazyLockDB.defaultCurse == nil then
+		LazyLockDB.defaultCurse = "Curse of Shadow"
+	end
+	if LazyLockDB.SpellStats == nil then
+		LazyLockDB.SpellStats = {}
+	end
+	if LazyLockDB.MobStats == nil then
+		LazyLockDB.MobStats = {}
+	end
+	if LazyLockDB.reportToSay == nil then
+		LazyLockDB.reportToSay = false
+	end
+	if LazyLockDB.logging == nil then
+		LazyLockDB.logging = true
+	end
+	if LazyLockDB.Log == nil then
+		LazyLockDB.Log = {}
+	end
+	
+	if LazyLock.Settings == nil then
+		LazyLock.Settings = {}
+		for k,v in pairs(LazyLock.Default) do
+			LazyLock.Settings[k] = v
+		end
+	end
+	LazyLock:Print("LazyLock: Variables Loaded.")
 end
 
 LazyLock.TargetTracker = {
@@ -74,8 +90,51 @@ LazyLock.TargetTracker = {
 	spells = {}
 }
 
-function LazyLock:Debug(msg)
-	DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[LL Debug]|r "..tostring(msg))
+function LazyLock:Print(msg)
+	if not msg then return end
+	if LazyLockDB and LazyLockDB.Log and LazyLockDB.logging then
+		table.insert(LazyLockDB.Log, date("%c")..": "..tostring(msg))
+	end
+	DEFAULT_CHAT_FRAME:AddMessage(msg)
+end
+
+
+function LazyLock:GetPotentialMana()
+    local current = UnitMana("player")
+    local max = UnitManaMax("player")
+    local deficit = max - current
+    
+    -- Life Tap Potential (Health > 50%)
+    local hp = UnitHealth("player")
+    local hpMax = UnitHealthMax("player")
+    local tapPotential = 0
+    
+    if (hp / hpMax) > 0.5 then
+        -- Rough estimate: 1 Tap ~ 400-500 mana depending on gear/talents
+        -- Let's conserve and say we can safely tap twice if > 50% HP
+        tapPotential = 800
+    end
+    
+    -- Check for Mana Potions (Simple ID check for Major/Superior)
+    -- Major: 13444, Superior: 13443, Combat: 22832
+    local potionPotential = 0
+    if LazyLock:GetItemCount(13444) > 0 or LazyLock:GetItemCount(13443) > 0 or LazyLock:GetItemCount(22832) > 0 then
+         if ShowCooldown and GetContainerItemCooldown then
+             -- We'd check CD here ideally, but for now let's assume if we HAVE it, we count it as "reserve"
+             potionPotential = 1500
+         else
+             potionPotential = 1500
+         end
+    end
+    
+    -- Healthstones/Whipper Root (Act as mana via Life Tap)
+    -- Major HS: 19012
+    if LazyLock:GetItemCount(19012) > 0 then
+        -- 1 HS = ~1200 HP = ~1200 Mana via Taps
+        tapPotential = tapPotential + 1000
+    end
+    
+    return current + tapPotential + potionPotential
 end
 
 function LazyLock:GetItemCount(itemID)
@@ -126,12 +185,24 @@ function LazyLock:UpdateMobStats(name, duration, maxHP)
 	
 	m.avgTTD = (m.avgTTD * 0.7) + (duration * 0.3)
 	
+	-- Update maxHP and calculate strategy
 	LazyLockDB.MobStats[name].maxHP = maxHP
+	
+	-- Calculate and save strategy
+	local strategy = LazyLock:GetCombatStrategy(name, gType)
+	LazyLockDB.MobStats[name].strategy = strategy
+	LazyLockDB.MobStats[name][gType].strategy = strategy
+	
+	LazyLock:Print("|cffff0000[LL Debug]|r Saved MobStats for "..name..": TTD="..string.format("%.1f", duration).."s, Strategy="..strategy)
 end
 
 function LazyLock:AnalyzeHistory(name, gType)
-	LazyLock:Debug("Analyzing history for "..name.." in "..gType)
-	local m = LazyLockDB.MobStats and LazyLockDB.MobStats[name][gType] or { count = 0, avgTTD = duration, history = {} }
+	LazyLock:Print("|cffff0000[LL Debug]|r Analyzing history for "..name.." in "..gType)
+	local m = nil
+	if LazyLockDB.MobStats and LazyLockDB.MobStats[name] then
+		m = LazyLockDB.MobStats[name][gType]
+	end
+	m = m or { count = 0, avsgTTD = duration, history = {} }
 	if not m or not m.history or table.getn(m.history) == 0 then return nil end
 	
 	local sorted = {}
@@ -153,13 +224,13 @@ function LazyLock:HasDebuff(unit, name)
 		local debuffName = LazyLockTooltipTextLeft1:GetText()
 		if debuffName then
 			if string.find(string.lower(debuffName), string.lower(name)) then
-				LazyLock:Debug("Found debuff "..name.." on "..unit)
+				LazyLock:Print("|cffff0000[LL Debug]|r Found debuff "..name.." on "..unit)
 				return true
 			end
 		end
 		i = i + 1
 	end
-	LazyLock:Debug("No debuff "..name.." on "..unit)
+	LazyLock:Print("|cffff0000[LL Debug]|r No debuff "..name.." on "..unit)
 	return false
 end
 
@@ -198,23 +269,7 @@ function LazyLock:UpdateTargetTracker(spell, damage)
 	LazyLock.TargetTracker.spells[spell] = LazyLock.TargetTracker.spells[spell] + damage
 end
 
-function LazyLock:GetTTD()
-	local t = LazyLock.TargetTracker
-	if not t.name or t.startTime == 0 then return nil end
-	
-	local currentHP = UnitHealth("target")
-	local maxHP = UnitHealthMax("target")
-	
-	
-	if deltaHP <= 0 or duration < 2 then 
-		return 100 
-	end
-	
-	local dps = deltaHP / duration
-	local ttd = currentHP / dps
-	
-	return ttd
-end
+
 
 function LazyLock:GetBuffName(unit, index)
 	LazyLockTooltip:ClearLines()
@@ -224,23 +279,23 @@ function LazyLock:GetBuffName(unit, index)
 end
 
 function LazyLock:ExportStats()
-	DEFAULT_CHAT_FRAME:AddMessage("LazyLock Stats Export (Spell, Count, Total, Avg):")
+	LazyLock:Print("LazyLock Stats Export (Spell, Count, Total, Avg):")
 	for k, v in pairs(LazyLockDB.SpellStats) do
-		DEFAULT_CHAT_FRAME:AddMessage(k..", "..v.count..", "..v.total..", "..string.format("%.1f", v.avg))
+		LazyLock:Print(k..", "..v.count..", "..v.total..", "..string.format("%.1f", v.avg))
 	end
-	DEFAULT_CHAT_FRAME:AddMessage("LazyLock Mob Strategy (Name [Type], AvgTTD, Strategy):")
+	LazyLock:Print("LazyLock Mob Strategy (Name [Type], AvgTTD, Strategy):")
 	for k, v in pairs(LazyLockDB.MobStats) do
 		if v.solo then 
 			local strat = LazyLock:GetCombatStrategy(k, "solo")
-			DEFAULT_CHAT_FRAME:AddMessage(k.." [solo], "..string.format("%.1f", v.solo.avgTTD)..", "..strat) 
+			LazyLock:Print(k.." [solo], "..string.format("%.1f", v.solo.avgTTD)..", "..strat) 
 		end
 		if v.party then 
 			local strat = LazyLock:GetCombatStrategy(k, "party")
-			DEFAULT_CHAT_FRAME:AddMessage(k.." [party], "..string.format("%.1f", v.party.avgTTD)..", "..strat) 
+			LazyLock:Print(k.." [party], "..string.format("%.1f", v.party.avgTTD)..", "..strat) 
 		end
 		if v.raid then 
 			local strat = LazyLock:GetCombatStrategy(k, "raid")
-			DEFAULT_CHAT_FRAME:AddMessage(k.." [raid], "..string.format("%.1f", v.raid.avgTTD)..", "..strat) 
+			LazyLock:Print(k.." [raid], "..string.format("%.1f", v.raid.avgTTD)..", "..strat) 
 		end
 	end
 end
@@ -271,7 +326,7 @@ function LazyLock:Report(toChat, toSay)
 	local output = msg..breakdown
 	
 	if toChat then
-		DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00"..output.."|r")
+		LazyLock:Print("|cff00ff00"..output.."|r")
 	end
 	
 	if toSay then
@@ -321,13 +376,13 @@ function LazyLock:CheckConsumables()
 		end
 		
 		if not found then
-			DEFAULT_CHAT_FRAME:AddMessage("|cffff0000LazyLock:|r Missing |cff71d5ff["..req.display.."]|r")
+			LazyLock:Print("|cffff0000LazyLock:|r Missing |cff71d5ff["..req.display.."]|r")
 		end
 	end
 	
 	local hasMainHandEnchant, _, _, _, _, _ = GetWeaponEnchantInfo()
 	if not hasMainHandEnchant then
-		DEFAULT_CHAT_FRAME:AddMessage("|cffff0000LazyLock:|r Missing |cff71d5ff[Weapon Oil/Enchant]|r")
+		LazyLock:Print("|cffff0000LazyLock:|r Missing |cff71d5ff[Weapon Oil/Enchant]|r")
 	end
 end
 
@@ -352,9 +407,9 @@ function LazyLock:CurseSlashHandler(msg)
 	end
 	
 	if found then
-		DEFAULT_CHAT_FRAME:AddMessage("LazyLock: Default curse set to |cff71d5ff["..LazyLockDB.defaultCurse.."]|r")
+		LazyLock:Print("LazyLock: Default curse set to |cff71d5ff["..LazyLockDB.defaultCurse.."]|r")
 	else
-		DEFAULT_CHAT_FRAME:AddMessage("LazyLock: Unknown curse. Available: agony, elements, shadow, tongues, recklessness, weakness, doom.")
+		LazyLock:Print("LazyLock: Unknown curse. Available: agony, elements, shadow, tongues, recklessness, weakness, doom.")
 	end
 end
 
@@ -387,6 +442,8 @@ function LazyLock:Cast()
 
 	if not LazyLock:GetSpellCooldown("Death Coil") and not LazyLock.Settings["IsCasting"] then
 		CastSpellByName("Death Coil")
+        -- Death Coil is instant, but triggers GCD. Return true? 
+        -- Actually, global GCD will block next cast anyway, but for safety:
 		return
 	end
 	
@@ -401,55 +458,63 @@ function LazyLock:Cast()
 		end
 	end
 
-	-- if strat == "BURST" then
-	-- 	self:CastBurst()
-	-- elseif strat == "NORMAL" then
-	-- 	self:CastNormal()
-	-- elseif strat == "LONG" then
-	self:CastLong()
-	-- end
+    local casted = false
+	if strat == "BURST" then
+		casted = self:CastBurst()
+	elseif strat == "NORMAL" then
+		casted = self:CastNormal()
+	elseif strat == "LONG" then
+	    casted = self:CastLong()
+	else
+        -- Fallback to LONG or NORMAL if unknown
+        casted = self:CastNormal()
+    end
 	
-	-- if not LazyLock.Settings["IsCasting"] then
-	-- 	CastSpellByName("Shadow Bolt")
-	-- end
+    -- Fallback Shadow Bolt removed to prevent spam
+
 end
 
 function LazyLock:CastBurst()
 	if LazyLock:GetItemCount(6265) > 0 and not LazyLock:GetSpellCooldown("Shadowburn") and not LazyLock.Settings["IsCasting"] then
 		CastSpellByName("Shadowburn")
-		return
+		return true
 	end
 	
 	if not LazyLock.Settings["IsCasting"] and not LazyLock:GetSpellCooldown("Searing Pain") then
 		CastSpellByName("Searing Pain")
-		return
+		return true
 	end
+    return false
 end
 
 function LazyLock:CastNormal()
 	if not LazyLock:HasDebuff("target", "Immolate")
-	and not LazyLock:GetSpellCooldown("Immolate") and not LazyLock.Settings["IsCasting"] and LazyLock:IsWorthCasting("Immolate") then
+	and not LazyLock:GetSpellCooldown("Immolate") and not LazyLock.Settings["IsCasting"] and LazyLock:IsWorthCasting("Immolate") 
+	and (GetTime() - (LazyLock.Settings["Immolate"] or 0) > 2) then
 		CastSpellByName("Immolate")
 		LazyLock.Settings["Immolate"] = GetTime() 
-		return
+		return true
 	end
 	
 	if not LazyLock:HasDebuff("target", "Corruption") 
-	and not LazyLock:GetSpellCooldown("Corruption") and not LazyLock.Settings["IsCasting"] and LazyLock:IsWorthCasting("Corruption") then
+	and not LazyLock:GetSpellCooldown("Corruption") and not LazyLock.Settings["IsCasting"] and LazyLock:IsWorthCasting("Corruption") 
+	and (GetTime() - (LazyLock.Settings["Corruption"] or 0) > 2) then
 		CastSpellByName("Corruption")
 		LazyLock.Settings["Corruption"] = GetTime()
-		return
+		return true
 	end
 	
 	if LazyLock:GetItemCount(6265) > 0 and not LazyLock:GetSpellCooldown("Shadowburn") and not LazyLock.Settings["IsCasting"] and LazyLock:IsWorthCasting("Shadowburn") then
 		CastSpellByName("Shadowburn")
-		return
+		return true
 	end
 	
 	if not LazyLock.Settings["IsCasting"] then
 		CastSpellByName("Shadow Bolt")
-		return
+		LazyLock:Print("|cffff0000[LL Debug]|r Casting Shadow Bolt")
+		return true
 	end
+    return false
 end
 
 function LazyLock:CastLong()
@@ -463,48 +528,53 @@ function LazyLock:CastLong()
 	if not LazyLock:HasDebuff("target", "Curse of Shadow") 
 	and not LazyLock:GetSpellCooldown("Curse of Shadow") 
 	and not LazyLock.Settings["IsCasting"] 
-	and LazyLock:IsWorthCasting("Curse of Shadow") then
-		LazyLock:Debug("Casting Curse of Shadow")
+	and LazyLock:IsWorthCasting("Curse of Shadow") 
+	and (GetTime() - (LazyLock.Settings["Curse of Shadow"] or 0) > 2) then
+		LazyLock:Print("|cffff0000[LL Debug]|r Casting Curse of Shadow")
 		CastSpellByName("Curse of Shadow")
 		LazyLock.Settings["Curse of Shadow"] = GetTime()
-		return
+		return true
 	end
 
 	if not LazyLock:HasDebuff("target", "Curse of Agony") 
 	and not LazyLock:GetSpellCooldown("Curse of Agony") 
 	and not LazyLock.Settings["IsCasting"] 
-	and LazyLock:IsWorthCasting("Curse of Agony") then
-		LazyLock:Debug("Casting Currse of Agony")
+	and LazyLock:IsWorthCasting("Curse of Agony") 
+	and (GetTime() - (LazyLock.Settings["Curse of Agony"] or 0) > 2) then
+		LazyLock:Print("|cffff0000[LL Debug]|r Casting Curse of Agony")
 		CastSpellByName("Curse of Agony")
 		LazyLock.Settings["Curse of Agony"] = GetTime()
-		return
+		return true
 	end
 	
 	if not LazyLock:HasDebuff("target", "Siphon Life") 
 	and not LazyLock:GetSpellCooldown("Siphon Life") 
 	and not LazyLock.Settings["IsCasting"] 
-	and LazyLock:IsWorthCasting("Siphon Life") then
+	and LazyLock:IsWorthCasting("Siphon Life") 
+	and (GetTime() - (LazyLock.Settings["Siphon Life"] or 0) > 2) then
 		CastSpellByName("Siphon Life")
 		LazyLock.Settings["Siphon Life"] = GetTime()
-		return
+		return true
 	end
 	
 	if not LazyLock:HasDebuff("target", "Corruption") 
 	and not LazyLock:GetSpellCooldown("Corruption") 
 	and not LazyLock.Settings["IsCasting"] 
-	and LazyLock:IsWorthCasting("Corruption") then
+	and LazyLock:IsWorthCasting("Corruption") 
+	and (GetTime() - (LazyLock.Settings["Corruption"] or 0) > 2) then
 		CastSpellByName("Corruption")
 		LazyLock.Settings["Corruption"] = GetTime()
-		return
+		return true
 	end
 	
 	if not LazyLock:HasDebuff("target", "Immolate") 
 	and not LazyLock:GetSpellCooldown("Immolate") 
 	and not LazyLock.Settings["IsCasting"] 
-	and LazyLock:IsWorthCasting("Immolate") then
+	and LazyLock:IsWorthCasting("Immolate") 
+	and (GetTime() - (LazyLock.Settings["Immolate"] or 0) > 2) then
 		CastSpellByName("Immolate")
 		LazyLock.Settings["Immolate"] = GetTime()
-		return
+		return true
 	end
 	
 	if LazyLock:HasDebuff("target", LazyLockDB.defaultCurse)
@@ -514,7 +584,7 @@ function LazyLock:CastLong()
 	and LazyLock:HasDebuff("target", "Immolate")
 	and LazyLock:GetItemCount(6265) > 0 and not LazyLock:GetSpellCooldown("Shadowburn") and not LazyLock.Settings["IsCasting"] and LazyLock:IsWorthCasting("Shadowburn") then
 		 CastSpellByName("Shadowburn")
-		 return
+		 return true
 	end
 	
 	if LazyLock:HasDebuff("target", LazyLockDB.defaultCurse)
@@ -524,8 +594,9 @@ function LazyLock:CastLong()
 	and LazyLock:HasDebuff("target", "Immolate")
 	and not LazyLock.Settings["IsCasting"] then
 		CastSpellByName("Shadow Bolt")
-		return
+		return true
 	end
+    return false
 end
 
 function LazyLock:GetSpellCooldown(spellName)
@@ -550,68 +621,98 @@ end
 function LazyLock:GetTTD()
 	if not UnitExists("target") or UnitIsDead("target") then return 999 end
 	
-	local currentHP = UnitHealth("target") / UnitHealthMax("target") * 100
+	local currentHP = UnitHealth("target")
+	local maxHP = UnitHealthMax("target")
+	if not maxHP or maxHP == 0 then maxHP = 100 end
+	
 	local now = GetTime()
 	
+	-- Track HP changes over time
+	if not LazyLock.TargetTracker.lastHP then
+		LazyLock.TargetTracker.lastHP = currentHP
+		LazyLock.TargetTracker.lastUpdate = now
+	end
+	
+	-- Update tracking every 1 second
 	if now - LazyLock.TargetTracker.lastUpdate > 1 then
 		LazyLock.TargetTracker.lastHP = currentHP
 		LazyLock.TargetTracker.lastUpdate = now
-		LazyLock:Debug("Updated lastHP to "..tostring(LazyLock.TargetTracker.lastHP))
+		LazyLock:Print("|cffff0000[LL Debug]|r Updated lastHP to "..currentHP)
 	end
 	
-	local percentLost = LazyLock.TargetTracker.startHP - currentHP
+	-- Calculate actual HP lost (not percentage!)
+	local startHP = (LazyLock.TargetTracker.startHP / 100) * maxHP
+	local hpLost = startHP - currentHP
 	local timeElapsed = now - LazyLock.TargetTracker.startTime
 	
-	LazyLock:Debug("Percent lost: "..tostring(percentLost).." Time elapsed: "..tostring(timeElapsed))
-	if timeElapsed < 2 or percentLost <= 0 then 
+	LazyLock:Print("|cffff0000[LL Debug]|r HP lost: "..tostring(hpLost).." Time elapsed: "..tostring(timeElapsed))
+	
+	-- Stabilization: If < 5s elapsed or no damage, return 999 (or predicted)
+	if timeElapsed < 5 or hpLost <= 0 then 
 		if LazyLock.TargetTracker.predictedTTD then
-			LazyLock:Debug("Using predicted TTD: "..tostring(LazyLock.TargetTracker.predictedTTD))
+			LazyLock:Print("|cffff0000[LL Debug]|r Using predicted TTD: "..tostring(LazyLock.TargetTracker.predictedTTD))
 			return LazyLock.TargetTracker.predictedTTD 
 		end
 		return 999 
 	end
 	
-	LazyLock:Debug("Calculated TTD: "..tostring(currentHP).." / "..tostring(timeElapsed))
-	local dpsPercent = percentLost / timeElapsed
-	if dpsPercent <= 0 then 
+	-- Calculate DPS (HP per second, not percentage!)
+	local dps = hpLost / timeElapsed
+	if dps <= 0 then 
 		if LazyLock.TargetTracker.predictedTTD then 
-			LazyLock:Debug("Using predicted TTD: "..tostring(LazyLock.TargetTracker.predictedTTD))
+			LazyLock:Print("|cffff0000[LL Debug]|r Using predicted TTD: "..tostring(LazyLock.TargetTracker.predictedTTD))
 			return LazyLock.TargetTracker.predictedTTD 
 		end
 		return 999 
 	end
 	
-	LazyLock:Debug("Calculated TTD: "..tostring(currentHP).." / "..tostring(dpsPercent))
-	local timeToDie = currentHP / dpsPercent
-	DEFAULT_CHAT_FRAME:AddMessage("TTD: "..timeToDie)
+	-- Calculate TTD: current HP / DPS
+	local timeToDie = currentHP / dps
+	LazyLock:Print("|cffff0000[LL Debug]|r Calculated TTD: "..tostring(currentHP).." / "..tostring(dps).." = "..tostring(timeToDie).." seconds")
+	
 	return timeToDie
 end
 
 function LazyLock:IsWorthCasting(spell)
-
 	local ttd = LazyLock:GetTTD()
-	
 	local histTTD = LazyLock:AnalyzeHistory(UnitName("target"), LazyLock:GetGroupType())
+	
 	if histTTD then 
 		ttd = histTTD 
 	end
 
-	if "a" == "a" then
-		return true
-	end
+    -- Resource Analysis
+    local potentialMana = LazyLock:GetPotentialMana()
+    local maxMana = UnitManaMax("player")
+    local isRich = (potentialMana > (maxMana * 0.6)) -- considerate "Rich" if we can sustain >60% mana pool
+    
+    local thresholdMod = 1.0
+    if isRich then
+        thresholdMod = 0.7 -- Reduce TTD requirement by 30% if we are rich
+    end
+	
+
 	
 	if LazyLock.CurseData[spell] then
-		return ttd > 24
+	    if ttd > (24 * thresholdMod) then return true end
+	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 24 * thresholdMod).."s")
+		return false
 	end
 
-	LazyLock:Debug("Checking if "..spell.." is worth casting on "..UnitName("target").." with TTD of "..ttd)
-	LazyLock:Debug("Worth casting: "..tostring(ttd > 15).." (TTD > 15)"..tostring(ttd > 18).." (TTD > 18)"..tostring(ttd > 24).." (TTD > 24)")
+	LazyLock:Print("|cffff0000[LL Debug]|r Checking "..spell..". TTD: "..ttd..". Rich: "..tostring(isRich))
+	
 	if spell == "Immolate" then
-		return ttd > 15
+	    if ttd > (15 * thresholdMod) then return true end
+        LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 15 * thresholdMod).."s")
+		return false
 	elseif spell == "Siphon Life" then
-		return ttd > 30
+	    if ttd > (30 * thresholdMod) then return true end
+	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 30 * thresholdMod).."s")
+		return false
 	elseif spell == "Corruption" then
-		return ttd > 18
+	    if ttd > (18 * thresholdMod) then return true end
+	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 18 * thresholdMod).."s")
+		return false
 	elseif spell == "Shadowburn" then
 		if LazyLock:GetItemCount(6265) >= 20 then return true end
 
@@ -630,89 +731,83 @@ function LazyLock:IsWorthCasting(spell)
 	return true
 end
 
+function LazyLock:ProcessDamageMatch(spell, damage)
+    if not spell or not damage then return end
+    -- Remove distinct period if present
+    spell = string.gsub(spell, "%.$", "")
+    local d = tonumber(damage)
+    self:RecordDamage(spell, d)
+    self:UpdateTargetTracker(spell, d)
+end
+
+function LazyLock:ParseCombatMessage(msg)
+    for spell, damage in string.gfind(msg, "Your (.+) hits .+ for (%d+)") do
+        LazyLock:ProcessDamageMatch(spell, damage)
+    end
+    for spell, damage in string.gfind(msg, "Your (.+) crits .+ for (%d+)") do
+        LazyLock:ProcessDamageMatch(spell, damage)
+    end
+    for spell, damage in string.gfind(msg, "Your (.+) ticks for (%d+)") do
+        LazyLock:ProcessDamageMatch(spell, damage)
+    end
+    -- Added support for "Target suffers X damage from your Spell"
+    for _, damage, spell in string.gfind(msg, "(.+) suffers (%d+) .+ from your (.+)") do
+        LazyLock:ProcessDamageMatch(spell, damage)
+    end
+end
+
 LazyLock:SetScript("OnEvent", function()
-	if event == "PLAYER_ENTERING_WORLD" then
-		LazyLock:Debug("Initializing LazyLock...")
-		LazyLock:UnregisterEvent("PLAYER_ENTERING_WORLD")
-		
-		if LazyLockDB == nil then
-			LazyLockDB = {}
-		end
-		if LazyLockDB.checkConsumables == nil then
-			LazyLockDB.checkConsumables = true
-		end
-		if LazyLockDB.defaultCurse == nil then
-			LazyLockDB.defaultCurse = "Curse of Shadow"
-		end
-		if LazyLockDB.SpellStats == nil then
-			LazyLockDB.SpellStats = {}
-		end
-		if LazyLockDB.MobStats == nil then
-			LazyLockDB.MobStats = {}
-		end
-		if LazyLockDB.reportToSay == nil then
-			LazyLockDB.reportToSay = false
-		end
-		
-		
-		if LazyLock.Settings == nil then
-			LazyLock.Settings = {}
-			for k,v in pairs(LazyLock.Default) do
-				LazyLock.Settings[k] = v
-			end
-		end
-		
-		
-		LazyLock.TargetTracker = {
-			name = nil,
-			startTime = 0,
-			damageDone = 0,
-			strategy = "NORMAL",
-			spells = {}
-		}
-		
-		LazyLock:RegisterSlashCommands()
-		DEFAULT_CHAT_FRAME:AddMessage("|cffFF00FF[LL INIT]|r RegisterSlashCommands done!")
-		LazyLock:Debug("Initialization Complete.")
-		
+	if event == "VARIABLES_LOADED" then
+		LazyLock:Initialize()
 	elseif event == "PLAYER_TARGET_CHANGED" then
-		LazyLock:Debug("Target Changed")
+		LazyLock:Print("|cffff0000[LL Debug]|r Target Changed")
 		LazyLock.Settings["IsCasting"] = false 
 		LazyLock:CheckConsumables()
-		local tName = UnitName("target") or "Unknown"
-		local predTTD = nil
-		local gType = LazyLock:GetGroupType()
 		
-		local predTTD = nil
-		local gType = LazyLock:GetGroupType()
-		
-		if LazyLockDB.MobStats and LazyLockDB.MobStats[tName] and LazyLockDB.MobStats[tName][gType] then
-			predTTD = LazyLock:AnalyzeHistory(tName, gType)
-			if not predTTD then
-				predTTD = LazyLockDB.MobStats[tName][gType].avgTTD
+		if UnitExists("target") and UnitCanAttack("player", "target") and not UnitIsDead("target") then
+			local tName = UnitName("target") or "Unknown"
+			local max_hp = UnitHealthMax("target")
+			if not max_hp or max_hp == 0 then max_hp = 100 end
+			
+			-- Initialize stats if missing
+			if not LazyLockDB.MobStats[tName] then
+				LazyLockDB.MobStats[tName] = { maxHP = max_hp }
 			end
-		end
-		
-		local hp = UnitHealth("target")
-		local max_hp = UnitHealthMax("target")
-		LazyLock.TargetTracker = {
-			name = tName,
-			startTime = GetTime(),
-			startHP = hp,
-			maxHP = max_hp,
-			lastHP = hp,
-			lastUpdate = GetTime(),
-			damageDone = 0,
-			damageDone = 0,
-			spells = {} 
-		}
-		
-		
-		if UnitCanAttack("player", "target") and not UnitIsDead("target") then
-			local strat = LazyLock:GetCombatStrategy(tName, LazyLock:GetGroupType())
+			
+			local gType = LazyLock:GetGroupType()
+			local predTTD = LazyLock:AnalyzeHistory(tName, gType)
+			
+			local hp = UnitHealth("target")
+			if not hp or hp == 0 then hp = 100 end
+
+			-- Calc HP Percent for Tracker
+			local hpPercent = (hp / max_hp) * 100
+
+			LazyLock.TargetTracker = {
+				name = tName,
+				startTime = GetTime(),
+				startHP = hpPercent,
+				maxHP = max_hp,
+				lastHP = hpPercent,
+				lastUpdate = GetTime(),
+				damageDone = 0,
+				spells = {},
+				predictedTTD = predTTD
+			}
+			
+			local strat = LazyLock:GetCombatStrategy(tName, gType)
 			LazyLock.TargetTracker.strategy = strat
+		else
+			LazyLock.TargetTracker = { 
+				name = nil,
+				startTime = 0,
+				damageDone = 0,
+				strategy = "NORMAL",
+				spells = {}
+			}
 		end
 		
+		-- Reset Cast Timers (Allow immediate recast on new target)
 		LazyLock.Settings["Curse of Agony"] = 0
 		LazyLock.Settings["Curse of the Elements"] = 0
 		LazyLock.Settings["Curse of Shadow"] = 0
@@ -722,6 +817,9 @@ LazyLock:SetScript("OnEvent", function()
 		LazyLock.Settings["Curse of Doom"] = 0
 		LazyLock.Settings["Corruption"] = 0
 		LazyLock.Settings["Siphon Life"] = 0
+		LazyLock.Settings["Immolate"] = 0
+		
+
 		
 	
 	elseif event == "SPELLCAST_START" then
@@ -749,25 +847,15 @@ LazyLock:SetScript("OnEvent", function()
 	elseif event == "CHAT_MSG_SPELL_PERIODIC_FRIENDLYPLAYER_DAMAGE" then
 	elseif event == "CHAT_MSG_SPELL_PERIODIC_HOSTILEPLAYER_DAMAGE" then
 	elseif event == "CHAT_MSG_SPELL_SELF_DAMAGE" or event == "CHAT_MSG_SPELL_PERIODIC_SELF_DAMAGE" then
-		for spellName, damage in string.gfind(arg1, "Your (.+) hits .+ for (%d+)") do
-			LazyLock:RecordDamage(spellName, tonumber(damage))
-			LazyLock:UpdateTargetTracker(spellName, tonumber(damage))
-		end
-		for spellName, damage in string.gfind(arg1, "Your (.+) crits .+ for (%d+)") do
-			LazyLock:RecordDamage(spellName, tonumber(damage))
-			LazyLock:UpdateTargetTracker(spellName, tonumber(damage))
-		end
-		for spellName, damage in string.gfind(arg1, "Your (.+) ticks for (%d+)") do
-			LazyLock:RecordDamage(spellName, tonumber(damage))
-			LazyLock:UpdateTargetTracker(spellName, tonumber(damage))
-		end
+		LazyLock:ParseCombatMessage(arg1)
+
 	elseif event == "CHAT_MSG_COMBAT_HOSTILE_DEATH" then
 		-- Format: "X dies."
 		local targetName = LazyLock.TargetTracker.name
 		if targetName and targetName ~= "" and string.find(arg1, targetName) then
 			local dmg = LazyLock.TargetTracker.damageDone
 			if dmg > 0 then
-				DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00LazyLock:|r Killed ["..targetName.."]. My Damage: "..dmg)
+				LazyLock:Print("|cff00ff00LazyLock:|r Killed ["..targetName.."]. My Damage: "..dmg)
 			end
 			
 			-- Learn Strategy (Record Duration)
@@ -778,19 +866,19 @@ LazyLock:SetScript("OnEvent", function()
 		end
 	end
 end)
-DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[LL Debug] SetScript with OLD STYLE wrapper!|r")
+LazyLock:Print("|cff00ff00[LL Debug] SetScript with OLD STYLE wrapper!|r")
 
 for _, event in pairs(eventsToRegister) do
 	LazyLock:RegisterEvent(event)
-	DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[LL Debug] Registered Event: "..event.."|r")
+	LazyLock:Print("|cffff0000[LL Debug] Registered Event: "..event.."|r")
 end
-DEFAULT_CHAT_FRAME:AddMessage("|cff00FF00[LL Debug] All events registered!|r")
+LazyLock:Print("|cff00FF00[LL Debug] All events registered!|r")
 
-LazyLock:Debug("RegisterSlashCommands called.")
+LazyLock:Print("|cffff0000[LL Debug]|r RegisterSlashCommands called.")
 SLASH_LAZYLOCK1 = "/lazylock"
 SLASH_LAZYLOCK2 = "/ll"
 SlashCmdList["LAZYLOCK"] = function(msg)
-	LazyLock:Debug("Slash Handler called with: '"..(msg or "nil").."'") 
+	LazyLock:Print("|cffff0000[LL Debug]|r Slash Handler called with: '"..(msg or "nil").."'") 
 	LazyLock.Settings["IsCasting"] = false
 	
 	local _, _, cmd, args = string.find(msg, "%s?(%w+)%s?(.*)")
@@ -804,7 +892,7 @@ SlashCmdList["LAZYLOCK"] = function(msg)
 		else
 			LazyLockDB.checkConsumables = not LazyLockDB.checkConsumables
 		end
-		DEFAULT_CHAT_FRAME:AddMessage("LazyLock Consumables Check: "..(LazyLockDB.checkConsumables and "ON" or "OFF"))
+		LazyLock:Print("LazyLock Consumables Check: "..(LazyLockDB.checkConsumables and "ON" or "OFF"))
 		
 	elseif cmd == "curse" then
 		local curse = nil
@@ -821,9 +909,9 @@ SlashCmdList["LAZYLOCK"] = function(msg)
 		
 		if curse then
 			LazyLockDB.defaultCurse = curse
-			DEFAULT_CHAT_FRAME:AddMessage("LazyLock: Default Curse set to |cff71d5ff"..curse.."|r")
+			LazyLock:Print("LazyLock: Default Curse set to |cff71d5ff"..curse.."|r")
 		else
-			DEFAULT_CHAT_FRAME:AddMessage("LazyLock: Invalid curse alias. Usage: /ll curse [agony/elements/shadow/recklessness/tongues/weakness/doom]")
+			LazyLock:Print("LazyLock: Invalid curse alias. Usage: /ll curse [agony/elements/shadow/recklessness/tongues/weakness/doom]")
 		end
 		
 	elseif cmd == "export" then
@@ -836,16 +924,24 @@ SlashCmdList["LAZYLOCK"] = function(msg)
 		if args == "on" then LazyLockDB.reportToSay = true
 		elseif args == "off" then LazyLockDB.reportToSay = false
 		else LazyLockDB.reportToSay = not LazyLockDB.reportToSay end
-		DEFAULT_CHAT_FRAME:AddMessage("LazyLock Say Report: "..(LazyLockDB.reportToSay and "ON" or "OFF"))
+		LazyLock:Print("LazyLock Say Report: "..(LazyLockDB.reportToSay and "ON" or "OFF"))
+
+	elseif cmd == "log" then
+		if args == "on" then LazyLockDB.logging = true
+		elseif args == "off" then LazyLockDB.logging = false
+		else LazyLockDB.logging = not LazyLockDB.logging end
+		LazyLock:Print("LazyLock Logging: "..(LazyLockDB.logging and "ON" or "OFF"))
 	
 	elseif cmd == "help" then
-		DEFAULT_CHAT_FRAME:AddMessage("|cff71d5ffLazyLock Commands:|r")
-		DEFAULT_CHAT_FRAME:AddMessage("/ll check [on/off] - Toggle consumable check")
-		DEFAULT_CHAT_FRAME:AddMessage("/ll curse [name] - Set default curse")
-		DEFAULT_CHAT_FRAME:AddMessage("/ll export - Show gathered stats")
-		DEFAULT_CHAT_FRAME:AddMessage("/ll puke - Show last fight report (Chat)")
-		DEFAULT_CHAT_FRAME:AddMessage("/ll say [on/off] - Toggle report to Say channel")
-		
+		LazyLock:Print("|cff71d5ffLazyLock Commands:|r")
+		LazyLock:Print("/ll check [on/off] - Toggle consumable check")
+		LazyLock:Print("/ll curse [name] - Set default curse")
+		LazyLock:Print("/ll export - Show gathered stats")
+		LazyLock:Print("/ll log [on/off] - Toggle persistent logging")
+		LazyLock:Print("/ll puke - Show last fight report (Chat)")
+		LazyLock:Print("/ll say [on/off] - Toggle report to Say channel")
+	elseif cmd == "save" then
+		ReloadUI()		
 	else
 		LazyLock:Cast()
 	end
