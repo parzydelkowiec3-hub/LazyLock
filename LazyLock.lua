@@ -788,21 +788,11 @@ function LazyLock:CastLong()
 		return true
 	end
 
-	-- Curse of Agony - Renew if < 3s remaining
-	local coaRemaining = LazyLock:GetDebuffTimeRemaining("target", "Curse of Agony")
-	if coaRemaining < 3 
-	and not LazyLock:GetSpellCooldown("Curse of Agony") 
-	and not LazyLock.Settings["IsCasting"] 
-	and LazyLock:IsWorthCasting("Curse of Agony") 
-	and (GetTime() - (LazyLock.Settings["Curse of Agony"] or 0) > 2) then
-		LazyLock:Print("|cffff0000[LL Debug]|r Renewing Curse of Agony (remaining: "..string.format("%.1f", coaRemaining).."s)")
-		CastSpellByName("Curse of Agony")
-		LazyLock.Settings["Curse of Agony"] = GetTime()
-		return true
-	end
+	-- Hardcoded Agony block REMOVED. 
+	-- Curses are handled strictly by 'defaultCurse' logic at the top of CastLong.
 	
 	local hasSiphon = LazyLock:HasDebuff("target", "Siphon Life")
-	-- LazyLock:Print("|cffff0000[LL Debug]|r " .. (hasSiphon and "Found" or "No") .. " debuff Siphon Life on target") -- Uncomment if needed, usually spammy
+	-- LazyLock:Print("|cffff0000[LL Debug]|r " .. (hasSiphon and "Found" or "No") .. " debuff Siphon Life on target") 
 
 	if not hasSiphon
 	and not LazyLock:GetSpellCooldown("Siphon Life") 
@@ -848,7 +838,7 @@ function LazyLock:CastLong()
 	if LazyLock:IsWorthCasting("Shadow Bolt") then
 		if not LazyLock.Settings["IsCasting"] then
 			CastSpellByName("Shadow Bolt")
-			LazyLock:Print("|cffff0000[LL Debug]|r Casting Shadow Bolt (Filler)")
+			-- Log handled by SPELLCAST_START
 			return true
 		end
 	end
@@ -900,57 +890,49 @@ function LazyLock:GetTTD()
 	local maxHP = UnitHealthMax("target")
 	if not maxHP or maxHP == 0 then maxHP = 100 end
 	
+	-- Normalize to Percentage (0-100) to handle both MobHealth (Real/Real) and Default (100/100)
+	local currentPct = (currentHP / maxHP) * 100
+	
 	local now = GetTime()
 	
-	-- World Boss Override: If Corrupt HP data makes TTD < 1s, we ignore it.
-	-- Always assume World Bosses live long enough for Curses.
-	local classification = UnitClassification("target")
-	if classification == "worldboss" then
-		return 300 -- Force 5 minutes
-	end
+	-- World Boss Override REMOVED. Relying on Percentage Math + History.
 	
-	-- Track HP changes over time
+	-- Initialize Tracker
 	if not LazyLock.TargetTracker.lastHP then
-		LazyLock.TargetTracker.lastHP = currentHP
+		LazyLock.TargetTracker.lastHP = currentPct
+		LazyLock.TargetTracker.startHP = currentPct -- Store STARTING PERCENTAGE
+		LazyLock.TargetTracker.startTime = now
 		LazyLock.TargetTracker.lastUpdate = now
 	end
 	
-	-- Update tracking every 1 second
+		-- Update simple debug tracker every 1s
 	if now - LazyLock.TargetTracker.lastUpdate > 1 then
-		LazyLock.TargetTracker.lastHP = currentHP
+		LazyLock.TargetTracker.lastHP = currentPct
 		LazyLock.TargetTracker.lastUpdate = now
-		LazyLock:Print("|cffff0000[LL Debug]|r Updated lastHP to "..currentHP)
 	end
 	
-	-- Calculate actual HP lost (not percentage!)
-	local startHP = (LazyLock.TargetTracker.startHP / 100) * maxHP
-	local hpLost = startHP - currentHP
 	local timeElapsed = now - LazyLock.TargetTracker.startTime
+	local pctLost = LazyLock.TargetTracker.startHP - currentPct
 	
-	LazyLock:Print("|cffff0000[LL Debug]|r HP lost: "..tostring(hpLost).." Time elapsed: "..tostring(timeElapsed))
+	LazyLock:Print("|cffff0000[LL Debug]|r % Lost: "..string.format("%.1f", pctLost).."% Time: "..string.format("%.1f", timeElapsed).."s")
 	
 	-- Stabilization: If < 5s elapsed or no damage, return 999 (or predicted)
-	if timeElapsed < 5 or hpLost <= 0 then 
+	if timeElapsed < 3 or pctLost <= 0 then 
 		if LazyLock.TargetTracker.predictedTTD then
-			LazyLock:Print("|cffff0000[LL Debug]|r Using predicted TTD: "..tostring(LazyLock.TargetTracker.predictedTTD))
 			return LazyLock.TargetTracker.predictedTTD 
 		end
 		return 999 
 	end
 	
-	-- Calculate DPS (HP per second, not percentage!)
-	local dps = hpLost / timeElapsed
-	if dps <= 0 then 
-		if LazyLock.TargetTracker.predictedTTD then 
-			LazyLock:Print("|cffff0000[LL Debug]|r Using predicted TTD: "..tostring(LazyLock.TargetTracker.predictedTTD))
-			return LazyLock.TargetTracker.predictedTTD 
-		end
+	-- Calculate DPS in terms of PERCENT per SECOND
+	local pctDPS = pctLost / timeElapsed
+	if pctDPS <= 0.01 then -- Very slow damage
 		return 999 
 	end
 	
-	-- Calculate TTD: current HP / DPS
-	local timeToDie = currentHP / dps
-	LazyLock:Print("|cffff0000[LL Debug]|r Calculated TTD: "..tostring(currentHP).." / "..tostring(dps).." = "..tostring(timeToDie).." seconds")
+	-- Calculate TTD: current Percent / PercentDPS
+	local timeToDie = currentPct / pctDPS
+	LazyLock:Print("|cffff0000[LL Debug]|r TTD: "..string.format("%.1f", currentPct).."% / "..string.format("%.2f", pctDPS).."%/s = "..string.format("%.1f", timeToDie).."s")
 	
 	return timeToDie
 end
@@ -964,70 +946,47 @@ function LazyLock:IsWorthCasting(spell)
 	end
 
 	local ttd = LazyLock:GetTTD()
-	local histTTD = LazyLock:AnalyzeHistory(UnitName("target"), LazyLock:GetGroupType())
 	
-	if histTTD then 
-		ttd = histTTD 
-	end
-
-    -- Resource Analysis
-    local potentialMana = LazyLock:GetPotentialMana()
-    local maxMana = UnitManaMax("player")
-    local isRich = (potentialMana > (maxMana * 0.6)) -- considerate "Rich" if we can sustain >60% mana pool
-    
-    local thresholdMod = 1.0
-    if isRich then
-        thresholdMod = 0.7 -- Reduce TTD requirement by 30% if we are rich
-    end
-	
-
-	
-	-- Curses: Duration 24s, need at least 8s for worthwhile damage
+	-- Curses: Duration 24s/300s, need at least 8s for worthwhile damage/utility
 	if LazyLock.CurseData[spell] then
-	    if ttd > (8 * thresholdMod) then return true end
-	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 8 * thresholdMod).."s")
+	    if ttd > 8 then return true end
+	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req 8.0s")
 		return false
 	end
 
-	LazyLock:Print("|cffff0000[LL Debug]|r Checking "..spell..". TTD: "..ttd..". Rich: "..tostring(isRich))
+	LazyLock:Print("|cffff0000[LL Debug]|r Checking "..spell..". TTD: "..string.format("%.1f", ttd))
 	
-	-- Immolate: 15s duration, instant damage + ticks every 3s. Need 4s minimum (was 5s)
+	-- Immolate: 15s duration, instant damage + ticks every 3s. Need 5s minimum.
 	if spell == "Immolate" then
-	    if ttd > (4 * thresholdMod) then return true end
-        LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 4 * thresholdMod).."s")
+	    if ttd > 5 then return true end
+        LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req 5.0s")
 		return false
-	-- Siphon Life: 30s duration, ticks every 3s. Need 6s minimum (was 9s)
+	-- Siphon Life: 30s duration, ticks every 3s. Need 6s minimum.
 	elseif spell == "Siphon Life" then
-	    if ttd > (6 * thresholdMod) then return true end
-	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 6 * thresholdMod).."s")
+	    if ttd > 6 then return true end
+	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req 6.0s")
 		return false
-	-- Corruption: 18s duration, ticks every 3s. Need 5s minimum (was 6s)
+	-- Corruption: 18s duration, ticks every 3s. Need 5s minimum.
 	elseif spell == "Corruption" then
-	    if ttd > (5 * thresholdMod) then return true end
-	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 5 * thresholdMod).."s")
+	    if ttd > 5 then return true end
+	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req 5.0s")
 		return false
 	elseif spell == "Shadowburn" then
 		local shardCount = LazyLock:GetItemCount(6265)
-		local hp = UnitHealth("target") / UnitHealthMax("target") * 100
-		local lethal = false
-		
-		if LazyLockDB.SpellStats["Shadowburn"] and LazyLockDB.SpellStats["Shadowburn"].avg > 0 then
-			if UnitHealth("target") <= LazyLockDB.SpellStats["Shadowburn"].avg then
-				lethal = true
-			end
-		end
+		local hp = UnitHealth("target")
+		local maxHp = UnitHealthMax("target")
+		if not maxHp or maxHp == 0 then maxHp = 100 end
+		local hpPct = (hp / maxHp) * 100
 
 		-- Abundance: Burn freely
 		if shardCount > 15 then 
-			return (ttd < 15) or (hp < 25) or lethal
+			return (ttd < 15) or (hpPct < 25)
 		end
 
 		-- Conservation: Strict Execute Only
-		-- Only use if we are finishing the mob off to save shards
 		if shardCount <= 15 then
-			if lethal then return true end
 			if ttd < 5 then return true end -- Only if dying VERY soon
-			if hp < 5 then return true end  -- True execute range
+			if hpPct < 5 then return true end  -- True execute range
 			
 			return false
 		end
