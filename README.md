@@ -58,6 +58,7 @@ or
 - `/ll say [on/off]` - Toggle announcing report to Say channel (Default: Off).
 - `/ll curse [agony/elements/shadow/recklessness/tongues/weakness/doom]` - Set your default curse.
 - `/ll drain [on/off]` - Toggle Drain Soul mode for shard farming (Default: Off).
+- `/ll test [on/off]` - Toggle ALL logging (Debug + CombatLog) for testing.
 - `/ll log [on/off]` - Toggle persistent debug logging (Default: Off).
 - `/ll clear` - Clear all saved debug logs.
 - `/ll check [on/off/toggle]` - Enable/Disable consumable warnings.

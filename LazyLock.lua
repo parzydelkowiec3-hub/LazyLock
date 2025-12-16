@@ -1070,6 +1070,23 @@ SlashCmdList["LAZYLOCK"] = function(msg)
 		else LazyLockDB.logging = not LazyLockDB.logging end
 		LazyLock:Print("LazyLock Logging: "..(LazyLockDB.logging and "ON" or "OFF"))
 	
+	elseif cmd == "test" then
+		local state
+		if args == "on" then 
+			LazyLockDB.logging = true
+			LoggingCombat(true)
+			state = "|cff00ff00ON|r"
+		elseif args == "off" then 
+			LazyLockDB.logging = false
+			LoggingCombat(false)
+			state = "|cffff0000OFF|r"
+		else 
+			LazyLockDB.logging = not LazyLockDB.logging
+			if LazyLockDB.logging then LoggingCombat(true) else LoggingCombat(false) end
+			state = LazyLockDB.logging and "|cff00ff00ON|r" or "|cffff0000OFF|r"
+		end
+		LazyLock:Print("LazyLock Testing Mode (Addon Log + Combat Log): "..state)
+
 	elseif cmd == "drain" then
 		if args == "on" then LazyLockDB.drainSoulMode = true
 		elseif args == "off" then LazyLockDB.drainSoulMode = false
@@ -1095,6 +1112,7 @@ SlashCmdList["LAZYLOCK"] = function(msg)
 		LazyLock:Print("/ll export - Show gathered stats")
 		LazyLock:Print("/ll log [on/off] - Toggle persistent logging")
 		LazyLock:Print("/ll puke - Show last fight report (Chat)")
+		LazyLock:Print("/ll test [on/off] - Toggle ALL logging (Debug + CombatLog) for testing")
 		LazyLock:Print("/ll say [on/off] - Toggle report to Say channel")
 	elseif cmd == "save" then
 		ReloadUI()		
