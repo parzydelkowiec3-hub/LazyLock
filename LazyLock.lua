@@ -82,6 +82,14 @@ function LazyLock:Initialize()
 			LazyLock.Settings[k] = v
 		end
 	end
+	-- Print Status Report
+	local drainStatus = LazyLockDB.drainSoulMode and "|cff00ff00ON|r" or "|cffff0000OFF|r"
+	local logStatus = LazyLockDB.logging and "|cff00ff00ON|r" or "|cffff0000OFF|r"
+	
+	LazyLock:Print("LazyLock loaded. Type /ll help for commands.")
+	LazyLock:Print("Status: Drain Soul Mode ["..drainStatus.."] | Logging ["..logStatus.."]")
+
+	self:RegisterEvent("PLAYER_REGEN_ENABLED")
 	LazyLock:Print("LazyLock: Variables Loaded.")
 end
 
@@ -507,10 +515,27 @@ function LazyLock:Cast()
 	local strat = LazyLock:GetCombatStrategy(tName, LazyLock:GetGroupType())
 	local ttd = LazyLock:GetTTD()
 
-	if strat ~= "BURST" and (UnitMana("player") / UnitManaMax("player") * 100 < 5) and (UnitHealth("player") / UnitHealthMax("player") * 100 > 50) then
+	-- Life Tap Logic
+	local manaPct = UnitMana("player") / UnitManaMax("player") * 100
+	local hpPct = UnitHealth("player") / UnitHealthMax("player") * 100
+	
+	-- 1. Emergency Life Tap (Any strategy)
+	-- If we have less than 20% mana and are not critical on HP (>35%), we MUST tap to continue fighting
+	if (manaPct < 20) and (hpPct > 35) then 
 		if not LazyLock.Settings["IsCasting"] then
+			LazyLock:Print("|cffff0000[LL Debug]|r Emergency Life Tap (Low Mana)")
 			CastSpellByName("Life Tap")
-			return
+			return true
+		end
+	end
+
+	-- 2. Sustain Life Tap (NORMAL/LONG only)
+	-- Tap earlier (<60% mana) if we are very healthy (>80% HP) to avoid running dry later
+	if strat ~= "BURST" and (manaPct < 60) and (hpPct > 80) then
+		 if not LazyLock.Settings["IsCasting"] then
+			-- LazyLock:Print("|cffff0000[LL Debug]|r Sustain Life Tap (Healthy)") -- Optional debug
+			CastSpellByName("Life Tap")
+			return true
 		end
 	end
 
