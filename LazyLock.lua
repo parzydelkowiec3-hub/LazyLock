@@ -721,23 +721,19 @@ function LazyLock:CastLong()
 		return true
 	end
 	
-	if LazyLock:HasDebuff("target", LazyLockDB.defaultCurse)
-	and LazyLock:HasDebuff("target", "Curse of Agony")
-	and LazyLock:HasDebuff("target", "Siphon Life")
-	and LazyLock:HasDebuff("target", "Corruption")
-	and LazyLock:HasDebuff("target", "Immolate")
-	and LazyLock:GetItemCount(6265) > 0 and not LazyLock:GetSpellCooldown("Shadowburn") and not LazyLock.Settings["IsCasting"] and LazyLock:IsWorthCasting("Shadowburn") then
+	-- Shadowburn Execute (if all other dots are fine)
+	-- We don't require ALL dots, just that we are not busy casting something else
+	if LazyLock:GetItemCount(6265) > 0 and not LazyLock:GetSpellCooldown("Shadowburn") 
+	and not LazyLock.Settings["IsCasting"] and LazyLock:IsWorthCasting("Shadowburn") then
 		 CastSpellByName("Shadowburn")
 		 return true
 	end
 	
-	if LazyLock:HasDebuff("target", LazyLockDB.defaultCurse)
-	and LazyLock:HasDebuff("target", "Curse of Agony")
-	and LazyLock:HasDebuff("target", "Siphon Life")
-	and LazyLock:HasDebuff("target", "Corruption")
-	and LazyLock:HasDebuff("target", "Immolate")
-	and not LazyLock.Settings["IsCasting"] then
+	-- Filler: Shadow Bolt
+	-- Unconditional fallback: If we are here, we have nothing better to do.
+	if not LazyLock.Settings["IsCasting"] then
 		CastSpellByName("Shadow Bolt")
+		LazyLock:Print("|cffff0000[LL Debug]|r Casting Shadow Bolt (Filler)")
 		return true
 	end
     return false
