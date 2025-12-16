@@ -977,7 +977,7 @@ function LazyLock:ProcessDamageMatch(spell, damage)
 end
 
 function LazyLock:ParseCombatMessage(msg)
-	-- Check for immunity
+	-- Check for immunity (Self - "Your X failed. Y is immune")
 	for spell in string.gfind(msg, "Your (.+) failed%. .+ is immune%.") do
 		local tName = LazyLock.TargetTracker.name
 		if tName then
@@ -986,6 +986,19 @@ function LazyLock:ParseCombatMessage(msg)
 			
 			LazyLockDB.MobStats[tName].immuneSpells[spell] = true
 			LazyLock:Print("|cffff0000[LL Debug]|r Learned Persistent Immunity: "..spell.." for "..tName)
+		end
+	end
+
+	-- Check for immunity (Passive/Others - "Name's X fails. Y is immune")
+	for caster, spell, mob in string.gfind(msg, "(.+)'s (.+) fails%. (.+) is immune%.") do
+		if LazyLockDB.MobStats[mob] or (UnitName("target") == mob) then
+			if not LazyLockDB.MobStats[mob] then LazyLockDB.MobStats[mob] = {} end
+			if not LazyLockDB.MobStats[mob].immuneSpells then LazyLockDB.MobStats[mob].immuneSpells = {} end
+			
+			if not LazyLockDB.MobStats[mob].immuneSpells[spell] then
+				LazyLockDB.MobStats[mob].immuneSpells[spell] = true
+				LazyLock:Print("|cffff0000[LL Debug]|r Learned Passive Immunity: "..spell.." for "..mob.." (from "..caster..")")
+			end
 		end
 	end
 
