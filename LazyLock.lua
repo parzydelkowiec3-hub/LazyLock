@@ -701,7 +701,10 @@ function LazyLock:CastLong()
 		return true
 	end
 	
-	if not LazyLock:HasDebuff("target", "Siphon Life") 
+	local hasSiphon = LazyLock:HasDebuff("target", "Siphon Life")
+	-- LazyLock:Print("|cffff0000[LL Debug]|r " .. (hasSiphon and "Found" or "No") .. " debuff Siphon Life on target") -- Uncomment if needed, usually spammy
+
+	if not hasSiphon
 	and not LazyLock:GetSpellCooldown("Siphon Life") 
 	and not LazyLock.Settings["IsCasting"] 
 	and LazyLock:IsWorthCasting("Siphon Life") 
@@ -854,20 +857,20 @@ function LazyLock:IsWorthCasting(spell)
 
 	LazyLock:Print("|cffff0000[LL Debug]|r Checking "..spell..". TTD: "..ttd..". Rich: "..tostring(isRich))
 	
-	-- Immolate: 15s duration, instant damage + ticks every 3s. Need 5s minimum (instant + 1 tick)
+	-- Immolate: 15s duration, instant damage + ticks every 3s. Need 4s minimum (was 5s)
 	if spell == "Immolate" then
-	    if ttd > (5 * thresholdMod) then return true end
-        LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 5 * thresholdMod).."s")
+	    if ttd > (4 * thresholdMod) then return true end
+        LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 4 * thresholdMod).."s")
 		return false
-	-- Siphon Life: 30s duration, ticks every 3s. Need 9s minimum (3 ticks)
+	-- Siphon Life: 30s duration, ticks every 3s. Need 6s minimum (was 9s)
 	elseif spell == "Siphon Life" then
-	    if ttd > (9 * thresholdMod) then return true end
-	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 9 * thresholdMod).."s")
-		return false
-	-- Corruption: 18s duration, ticks every 3s. Need 6s minimum (2 ticks)
-	elseif spell == "Corruption" then
 	    if ttd > (6 * thresholdMod) then return true end
 	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 6 * thresholdMod).."s")
+		return false
+	-- Corruption: 18s duration, ticks every 3s. Need 5s minimum (was 6s)
+	elseif spell == "Corruption" then
+	    if ttd > (5 * thresholdMod) then return true end
+	    LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell..": TTD "..string.format("%.1f", ttd).."s < Req "..string.format("%.1f", 5 * thresholdMod).."s")
 		return false
 	elseif spell == "Shadowburn" then
 		local shardCount = LazyLock:GetItemCount(6265)
