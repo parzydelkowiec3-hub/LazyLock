@@ -902,6 +902,13 @@ function LazyLock:GetTTD()
 	
 	local now = GetTime()
 	
+	-- World Boss Override: If Corrupt HP data makes TTD < 1s, we ignore it.
+	-- Always assume World Bosses live long enough for Curses.
+	local classification = UnitClassification("target")
+	if classification == "worldboss" then
+		return 300 -- Force 5 minutes
+	end
+	
 	-- Track HP changes over time
 	if not LazyLock.TargetTracker.lastHP then
 		LazyLock.TargetTracker.lastHP = currentHP
