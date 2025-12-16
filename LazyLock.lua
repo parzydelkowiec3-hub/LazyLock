@@ -89,6 +89,20 @@ function LazyLock:Initialize()
 	LazyLock:Print("LazyLock loaded. Type /ll help for commands.")
 	LazyLock:Print("Status: Drain Soul Mode ["..drainStatus.."] | Logging ["..logStatus.."]")
 
+	-- Find Wand Slot (for IsAutoRepeatAction)
+	LazyLock.WandSlot = nil
+	for i = 1, 120 do
+		if IsAttackAction(i) then
+			-- Generic attack is usually slot 1, we want Shoot
+			-- Check texture
+			local texture = GetActionTexture(i)
+			if texture and string.find(texture, "Ability_ShootWand") then
+				LazyLock.WandSlot = i
+				break
+			end
+		end
+	end
+
 	self:RegisterEvent("PLAYER_REGEN_ENABLED")
 	LazyLock:Print("LazyLock: Variables Loaded.")
 end
@@ -650,11 +664,33 @@ function LazyLock:CastNormal()
 		return true
 	end
 	
-	if not LazyLock.Settings["IsCasting"] then
-		CastSpellByName("Shadow Bolt")
-		LazyLock:Print("|cffff0000[LL Debug]|r Casting Shadow Bolt")
-		return true
+	-- Filler: Shadow Bolt (with Immunity Check)
+	if LazyLock:IsWorthCasting("Shadow Bolt") then
+		if not LazyLock.Settings["IsCasting"] then
+			CastSpellByName("Shadow Bolt")
+			LazyLock:Print("|cffff0000[LL Debug]|r Casting Shadow Bolt")
+			return true
+		end
 	end
+	
+	-- Fallback 1: Searing Pain
+	if LazyLock:IsWorthCasting("Searing Pain") and not LazyLock:GetSpellCooldown("Searing Pain") then
+		if not LazyLock.Settings["IsCasting"] then
+			CastSpellByName("Searing Pain")
+			LazyLock:Print("|cffff0000[LL Debug]|r Fallback: Casting Searing Pain")
+			return true
+		end
+	end
+
+	-- Fallback 2: Wand (Shoot)
+	if LazyLock.WandSlot and not IsAutoRepeatAction(LazyLock.WandSlot) then
+		if not LazyLock.Settings["IsCasting"] then
+			CastSpellByName("Shoot")
+			LazyLock:Print("|cffff0000[LL Debug]|r Fallback: Wand")
+			return true
+		end
+	end
+	
     return false
 end
 
@@ -744,13 +780,33 @@ function LazyLock:CastLong()
 		 return true
 	end
 	
-	-- Filler: Shadow Bolt
-	-- Unconditional fallback: If we are here, we have nothing better to do.
-	if not LazyLock.Settings["IsCasting"] then
-		CastSpellByName("Shadow Bolt")
-		LazyLock:Print("|cffff0000[LL Debug]|r Casting Shadow Bolt (Filler)")
-		return true
+	-- Filler: Shadow Bolt (with Immunity Check)
+	if LazyLock:IsWorthCasting("Shadow Bolt") then
+		if not LazyLock.Settings["IsCasting"] then
+			CastSpellByName("Shadow Bolt")
+			LazyLock:Print("|cffff0000[LL Debug]|r Casting Shadow Bolt (Filler)")
+			return true
+		end
 	end
+	
+	-- Fallback 1: Searing Pain
+	if LazyLock:IsWorthCasting("Searing Pain") and not LazyLock:GetSpellCooldown("Searing Pain") then
+		if not LazyLock.Settings["IsCasting"] then
+			CastSpellByName("Searing Pain")
+			LazyLock:Print("|cffff0000[LL Debug]|r Fallback: Casting Searing Pain")
+			return true
+		end
+	end
+
+	-- Fallback 2: Wand (Shoot)
+	if LazyLock.WandSlot and not IsAutoRepeatAction(LazyLock.WandSlot) then
+		if not LazyLock.Settings["IsCasting"] then
+			CastSpellByName("Shoot")
+			LazyLock:Print("|cffff0000[LL Debug]|r Fallback: Wand")
+			return true
+		end
+	end
+	
     return false
 end
 
