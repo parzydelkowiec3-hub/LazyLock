@@ -635,12 +635,41 @@ function LazyLock:CastBurst()
 end
 
 function LazyLock:CastNormal()
+	LazyLock:Print("|cffff0000[LL Debug]|r Entering CastNormal")
 	-- Drain Soul for shard collection (only if mode enabled)
 	if LazyLock:ShouldUseDrainSoul() 
 	and not LazyLock:GetSpellCooldown("Drain Soul") 
 	and not LazyLock.Settings["IsCasting"] then
 		LazyLock:Print("|cffff0000[LL Debug]|r Casting Drain Soul for shard")
 		CastSpellByName("Drain Soul")
+		return true
+	end
+	
+	-- Curse Logic (Added to Normal Mode)
+	local curseName = LazyLockDB.defaultCurse or "Curse of Agony"
+	local checkName = curseName
+	if LazyLock.CurseData[curseName] and LazyLock.CurseData[curseName].check then
+		checkName = LazyLock.CurseData[curseName].check
+	end
+	
+	-- Dynamic Curse (defaultCurse) - Renew if < 3s remaining
+	local remaining = LazyLock:GetDebuffTimeRemaining("target", checkName)
+	local cdVal = LazyLock:GetSpellCooldown(curseName)
+	local isCastingVal = LazyLock.Settings["IsCasting"]
+	local isWorthVal = LazyLock:IsWorthCasting(curseName)
+	local timerVal = (GetTime() - (LazyLock.Settings[curseName] or 0)) 
+	
+	-- DEBUG LOGGING FOR CURSE (NORMAL)
+	LazyLock:Print("|cffff0000[LL Debug]|r Eval Curse (Normal): "..curseName.." Check: "..checkName.." Rem: "..string.format("%.1f", remaining).." CD: "..tostring(cdVal).." Casting: "..tostring(isCastingVal).." Worth: "..tostring(isWorthVal).." Timer: "..string.format("%.1f", timerVal))
+
+	if remaining < 3 
+	and not cdVal 
+	and not isCastingVal 
+	and isWorthVal 
+	and (timerVal > 2) then
+		LazyLock:Print("|cffff0000[LL Debug]|r Renewing "..curseName.." (remaining: "..string.format("%.1f", remaining).."s)")
+		CastSpellByName(curseName)
+		LazyLock.Settings[curseName] = GetTime()
 		return true
 	end
 	
@@ -712,6 +741,7 @@ function LazyLock:CastNormal()
 end
 
 function LazyLock:CastLong()
+	LazyLock:Print("|cffff0000[LL Debug]|r Entering CastLong")
 	-- Drain Soul for shard collection (only if mode enabled)
 	if LazyLock:ShouldUseDrainSoul() 
 	and not LazyLock:GetSpellCooldown("Drain Soul") 
