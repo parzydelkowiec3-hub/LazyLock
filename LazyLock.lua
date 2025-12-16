@@ -107,23 +107,9 @@ function LazyLock:Initialize()
 	LazyLock:Print("LazyLock: Variables Loaded.")
 end
 
-LazyLock.TargetTracker = {
-	name = nil,
-	startTime = 0,
-	damageDone = 0,
-	strategy = "NORMAL",
-	spells = {}
-}
-
--- Backup of last target's combat data (for Report after target change)
-LazyLock.LastTargetTracker = {
-	name = nil,
-	startTime = 0,
-	damageDone = 0,
-	strategy = "NORMAL",
-	reported = false,
-	spells = {}
-}
+LazyLock.TargetTracker = { name = nil, startTime = 0, damageDone = 0, hpHistory = {}, spells = {} }
+LazyLock.LastTargetTracker = { name = nil, startTime = 0, damageDone = 0, spells = {} }
+LazyLock.LastConsumableCheck = 0
 
 function LazyLock:Print(msg)
 	if not msg then return end
@@ -304,7 +290,23 @@ function LazyLock:GetGroupType()
 	return "solo"
 end
 
-function LazyLock:RecordDamage(spell, amount)
+function LazyLock:RecordDamage(mob, spell, damage)
+	-- Update Global Damage Tracker in MobStats
+	if not mob then mob = UnitName("target") end
+	if not mob then return end
+	
+	if not LazyLockDB.MobStats[mob] then
+		LazyLockDB.MobStats[mob] = { maxHP = 0 }
+	end
+	
+	local ms = LazyLockDB.MobStats[mob]
+	if not ms.session then ms.session = { damage = 0, spells = {}, startTime = GetTime() } end
+	
+	ms.session.damage = ms.session.damage + damage
+	if not ms.session.spells[spell] then ms.session.spells[spell] = 0 end
+	ms.session.spells[spell] = ms.session.spells[spell] + damage
+	
+	-- Update SpellStats (Global)
 	if not LazyLockDB.SpellStats then
 		LazyLockDB.SpellStats = {}
 	end
@@ -314,11 +316,12 @@ function LazyLock:RecordDamage(spell, amount)
 	
 	local s = LazyLockDB.SpellStats[spell]
 	s.count = s.count + 1
-	s.total = s.total + amount
+	s.total = s.total + damage
 	s.avg = s.total / s.count
 end
 
 function LazyLock:UpdateTargetTracker(spell, damage)
+	-- Keep TargetTracker for TTD/HP logic, but use RecordDamage for accounting
 	LazyLock.TargetTracker.damageDone = LazyLock.TargetTracker.damageDone + damage
 	if not LazyLock.TargetTracker.spells[spell] then LazyLock.TargetTracker.spells[spell] = 0 end
 	LazyLock.TargetTracker.spells[spell] = LazyLock.TargetTracker.spells[spell] + damage
@@ -380,13 +383,27 @@ function LazyLock:Report(toChat, toSay)
 		return
 	end
 	
+	-- Try to get accurate data from MobStats.session
+	local totalDmg = t.damageDone
+	local spellBreakdown = t.spells
+	
+	if LazyLockDB.MobStats[t.name] and LazyLockDB.MobStats[t.name].session then
+		totalDmg = LazyLockDB.MobStats[t.name].session.damage
+		spellBreakdown = LazyLockDB.MobStats[t.name].session.spells
+	end
+	
 	local strat = t.strategy or "Unknown"
 	local state = LazyLock:CheckState()
-	local msg = "LazyLock ["..state.."]: Killed "..t.name.." ("..strat.."). Total: "..t.damageDone.."."
+	local msg = "LazyLock ["..state.."]: Killed "..t.name.." ("..strat.."). Total: "..totalDmg.."."
 	
 	local breakdown = ""
-	for spell, dmg in pairs(t.spells) do
+	for spell, dmg in pairs(spellBreakdown) do
 		breakdown = breakdown.." ["..spell..": "..dmg.."]"
+	end
+	
+	-- Clear Session Data
+	if LazyLockDB.MobStats[t.name] then
+		LazyLockDB.MobStats[t.name].session = nil
 	end
 	
 	local output = msg..breakdown
@@ -711,16 +728,16 @@ function LazyLock:CastLong()
 	end
 
 	
-	-- Curse of Shadow (defaultCurse) - Renew if < 3s remaining
-	local cosRemaining = LazyLock:GetDebuffTimeRemaining("target", "Curse of Shadow")
-	if cosRemaining < 3 
-	and not LazyLock:GetSpellCooldown("Curse of Shadow") 
+	-- Dynamic Curse (defaultCurse) - Renew if < 3s remaining
+	local remaining = LazyLock:GetDebuffTimeRemaining("target", checkName)
+	if remaining < 3 
+	and not LazyLock:GetSpellCooldown(curseName) 
 	and not LazyLock.Settings["IsCasting"] 
-	and LazyLock:IsWorthCasting("Curse of Shadow") 
-	and (GetTime() - (LazyLock.Settings["Curse of Shadow"] or 0) > 2) then
-		LazyLock:Print("|cffff0000[LL Debug]|r Renewing Curse of Shadow (remaining: "..string.format("%.1f", cosRemaining).."s)")
-		CastSpellByName("Curse of Shadow")
-		LazyLock.Settings["Curse of Shadow"] = GetTime()
+	and LazyLock:IsWorthCasting(curseName) 
+	and (GetTime() - (LazyLock.Settings[curseName] or 0) > 2) then
+		LazyLock:Print("|cffff0000[LL Debug]|r Renewing "..curseName.." (remaining: "..string.format("%.1f", remaining).."s)")
+		CastSpellByName(curseName)
+		LazyLock.Settings[curseName] = GetTime()
 		return true
 	end
 
@@ -967,13 +984,17 @@ function LazyLock:IsWorthCasting(spell)
 	return true
 end
 
-function LazyLock:ProcessDamageMatch(spell, damage)
+function LazyLock:ProcessDamageMatch(spell, damage, mob)
     if not spell or not damage then return end
     -- Remove distinct period if present
     spell = string.gsub(spell, "%.$", "")
     local d = tonumber(damage)
-    self:RecordDamage(spell, d)
-    self:UpdateTargetTracker(spell, d)
+    self:RecordDamage(mob, spell, d) -- Use mob name if available
+    
+    -- Only update TargetTracker if it matches the current target (or no mob specified)
+    if not mob or (UnitName("target") == mob) then
+    	self:UpdateTargetTracker(spell, d)
+    end
 end
 
 function LazyLock:ParseCombatMessage(msg)
@@ -1002,18 +1023,21 @@ function LazyLock:ParseCombatMessage(msg)
 		end
 	end
 
-    for spell, damage in string.gfind(msg, "Your (.+) hits .+ for (%d+)") do
-        LazyLock:ProcessDamageMatch(spell, damage)
+    for spell, mob, damage in string.gfind(msg, "Your (.+) hits (.+) for (%d+)") do
+        LazyLock:ProcessDamageMatch(spell, damage, mob)
     end
-    for spell, damage in string.gfind(msg, "Your (.+) crits .+ for (%d+)") do
-        LazyLock:ProcessDamageMatch(spell, damage)
+    for spell, mob, damage in string.gfind(msg, "Your (.+) crits (.+) for (%d+)") do
+        LazyLock:ProcessDamageMatch(spell, damage, mob)
     end
     for spell, damage in string.gfind(msg, "Your (.+) ticks for (%d+)") do
-        LazyLock:ProcessDamageMatch(spell, damage)
+    	-- Ticks usually don't have mob name in this client version string? 
+    	-- Standard Vanilla: "Your Corruption ticks for 100." (Target implicit)
+    	-- Or "Mob suffers 100 from your Corruption." (This is handled below)
+        LazyLock:ProcessDamageMatch(spell, damage, UnitName("target"))
     end
     -- Added support for "Target suffers X damage from your Spell"
-    for _, damage, spell in string.gfind(msg, "(.+) suffers (%d+) .+ from your (.+)") do
-        LazyLock:ProcessDamageMatch(spell, damage)
+    for mob, damage, spell in string.gfind(msg, "(.+) suffers (%d+) .+ from your (.+)") do
+        LazyLock:ProcessDamageMatch(spell, damage, mob)
     end
 end
 
