@@ -386,11 +386,18 @@ function LazyLock:Report(toChat, toSay)
 	-- Try to get accurate data from MobStats.session
 	local totalDmg = t.damageDone
 	local spellBreakdown = t.spells
+	local source = "Tracker"
 	
 	if LazyLockDB.MobStats[t.name] and LazyLockDB.MobStats[t.name].session then
 		totalDmg = LazyLockDB.MobStats[t.name].session.damage
 		spellBreakdown = LazyLockDB.MobStats[t.name].session.spells
+		source = "Session"
 	end
+	
+	-- DEBUG REPORT
+	local count = 0
+	for k,v in pairs(spellBreakdown) do count = count + 1 end
+	LazyLock:Print("|cffff0000[LL Debug]|r Report Gen: Source="..source.." Dmg="..totalDmg.." Spells="..count)
 	
 	local strat = t.strategy or "Unknown"
 	local state = LazyLock:CheckState()
