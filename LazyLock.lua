@@ -107,6 +107,7 @@ LazyLock.LastTargetTracker = {
 	startTime = 0,
 	damageDone = 0,
 	strategy = "NORMAL",
+	reported = false,
 	spells = {}
 }
 
@@ -350,12 +351,18 @@ end
 function LazyLock:Report(toChat, toSay)
 	-- Try current target first, fall back to last target
 	local t = LazyLock.TargetTracker
-	if not t.name or t.damageDone == 0 then
-		t = LazyLock.LastTargetTracker
-	end
+	local usingBackup = false
 	
 	if not t.name or t.damageDone == 0 then
-		if toChat then DEFAULT_CHAT_FRAME:AddMessage("LazyLock: No recent combat data.") end
+		t = LazyLock.LastTargetTracker
+		usingBackup = true
+	end
+	
+	-- Verify we haven't reported this fallback already
+	if usingBackup and LazyLock.LastTargetTracker.reported then return end
+	
+	if not t.name or t.damageDone == 0 then
+		if toChat and not usingBackup then DEFAULT_CHAT_FRAME:AddMessage("LazyLock: No recent combat data.") end
 		return
 	end
 	
@@ -376,6 +383,11 @@ function LazyLock:Report(toChat, toSay)
 	
 	if toSay then
 		SendChatMessage(output, "SAY")
+	end
+	
+	-- Mark as reported to prevent spam
+	if usingBackup then 
+		LazyLock.LastTargetTracker.reported = true 
 	end
 end
 
@@ -949,6 +961,7 @@ LazyLock:SetScript("OnEvent", function()
 					startTime = LazyLock.TargetTracker.startTime,
 					damageDone = LazyLock.TargetTracker.damageDone,
 					strategy = LazyLock.TargetTracker.strategy,
+					reported = false,
 					spells = {}
 				}
 				-- Copy spells table
