@@ -1,8 +1,8 @@
 ## Interface: 11200
 ## Title: LazyLock
-## Author: Tuziak
+## Author: |cff9482c9Tuziak|r <parzydelkowiec3@gmail.com>
 ## Version: 1.2
-## Notes: dots for everyone
+## Notes: Advanced Warlock automation for DPS optimization and Soul Shard management.
 ## DefaultState: Enabled
 ## LoadOnDemand: 0
 ## SavedVariables: LazyLockDB
