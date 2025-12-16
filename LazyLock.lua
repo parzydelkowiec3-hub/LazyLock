@@ -1201,7 +1201,7 @@ LazyLock:SetScript("OnEvent", function()
 		if targetName and targetName ~= "" and string.find(arg1, targetName) then
 			local dmg = LazyLock.TargetTracker.damageDone
 			if dmg > 0 then
-				LazyLock:Print("|cff00ff00LazyLock:|r Killed ["..targetName.."]. My Damage: "..dmg)
+				-- Removed confusing 'My Damage' print. Now relying on Report() for accurate breakdown.
 				
 				-- Learn Strategy (Record Duration)
 				local duration = GetTime() - LazyLock.TargetTracker.startTime
