@@ -829,6 +829,12 @@ function LazyLock:GetTTD()
 end
 
 function LazyLock:IsWorthCasting(spell)
+	-- Immunity Check
+	if LazyLock.TargetTracker and LazyLock.TargetTracker.immuneSpells and LazyLock.TargetTracker.immuneSpells[spell] then
+		LazyLock:Print("|cffff0000[LL Debug]|r Skipping "..spell.." (Target Immune)")
+		return false
+	end
+
 	local ttd = LazyLock:GetTTD()
 	local histTTD = LazyLock:AnalyzeHistory(UnitName("target"), LazyLock:GetGroupType())
 	
@@ -914,6 +920,15 @@ function LazyLock:ProcessDamageMatch(spell, damage)
 end
 
 function LazyLock:ParseCombatMessage(msg)
+	-- Check for immunity
+	for spell in string.gfind(msg, "Your (.+) failed%. .+ is immune%.") do
+		if LazyLock.TargetTracker and LazyLock.TargetTracker.name then
+			if not LazyLock.TargetTracker.immuneSpells then LazyLock.TargetTracker.immuneSpells = {} end
+			LazyLock.TargetTracker.immuneSpells[spell] = true
+			LazyLock:Print("|cffff0000[LL Debug]|r Detected Immunity: "..spell)
+		end
+	end
+
     for spell, damage in string.gfind(msg, "Your (.+) hits .+ for (%d+)") do
         LazyLock:ProcessDamageMatch(spell, damage)
     end
@@ -965,6 +980,7 @@ LazyLock:SetScript("OnEvent", function()
 				lastUpdate = GetTime(),
 				damageDone = 0,
 				spells = {},
+				immuneSpells = {},
 				predictedTTD = predTTD
 			}
 			
