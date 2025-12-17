@@ -7,4 +7,8 @@
 ## LoadOnDemand: 0
 ## SavedVariables: LazyLockDB
 
+LazyLock_Data.lua
+LazyLock_Utils.lua
+LazyLock_Stats.lua
+LazyLock_Combat.lua
 LazyLock.lua

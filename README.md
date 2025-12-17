@@ -1,10 +1,10 @@
 # LazyLock
 
-## Remark: shit doesn't work as want it to, so it is kind of buggy now. Feel free to shut up and fix it yourself.
+# LazyLock
 
 **Author:** Tuziak  
 **Version:** 1.2  
-**WoW Version:** 1.12.1
+**WoW Version:** 1.12.1 (Compatible with **Turtle WoW**)
 
 LazyLock is an advanced automation addon for Warlocks that optimizes your DPS rotation based on **statistical analysis** and **historical data**.
 
