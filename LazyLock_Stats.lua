@@ -6,6 +6,12 @@ LazyLock.LastTargetTracker = { name = nil, startTime = 0, damageDone = 0, spells
 function LazyLock:UpdateMobStats(name, duration, maxHP)
 	local gType = LazyLock:GetGroupType()
 	
+    -- Fix: Prevent Pollution by checking if we fought the mob from the start
+    if LazyLock.TargetTracker and LazyLock.TargetTracker.startHP and LazyLock.TargetTracker.startHP < 95 then
+        LazyLock:Print("|cffff0000[LL Debug]|r Invalid TTD Data (StartHP "..string.format("%.1f", LazyLock.TargetTracker.startHP).."% < 95%). Skipped save.")
+        return
+    end
+	
 	if not LazyLockDB.MobStats[name] then
 		LazyLockDB.MobStats[name] = { maxHP = maxHP, solo = nil, party = nil, raid = nil }
 	end

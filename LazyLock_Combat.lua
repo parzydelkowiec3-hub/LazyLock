@@ -93,8 +93,15 @@ function LazyLock:Cast()
 	if not UnitExists("target") or UnitIsDead("target") or not UnitCanAttack("player", "target") then
 		return
 	end
+    
+	-- 3. Imp Auto-Attack
+	if LazyLockDB.impAutoAttack and UnitExists("pet") and not UnitIsDead("pet") and UnitCreatureFamily("pet") == "Imp" then
+		if not UnitIsUnit("pettarget", "target") then
+			PetAttack()
+		end
+	end
 	
-	-- 3. Check if already casting (most important - prevents all spam)
+	-- 4. Check if already casting (most important - prevents all spam)
 	-- This includes both casting and channeling via SPELLCAST events
 	if LazyLock.Settings["IsCasting"] then return end
 	
@@ -127,16 +134,10 @@ function LazyLock:Cast()
     local ltHpCost, ltManaGain = LazyLock:GetLifeTapValues()
     local deficit = maxMana - currentMana
     
-    -- Smart Check:
-    -- 1. Must account for the FULL mana gain (don't waste hp on tapping for 10 mana).
-    -- 2. Must "need" the mana (Deficit > ltManaGain).
-    -- 3. Healing safety check (IsPlayerReceivingHealing).
-    -- 4. HP Safety (>35%).
-    
-	if LazyLock:IsPlayerReceivingHealing(ltHpCost) 
-	and (deficit >= ltManaGain) 
-	and (hpPct > 35) then 
-		LazyLock:PerformCast("Life Tap", "Healed & Mana Needed")
+	-- Life Tap Logic: Only if mana is critically low (< 5%) and we have hp to spare (> 20%)
+	if (manaPct < 5) 
+	and (hpPct > 20) then 
+		LazyLock:PerformCast("Life Tap", "Low Mana (<5%)")
 		return true
 	end
 

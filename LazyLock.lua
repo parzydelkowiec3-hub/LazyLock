@@ -61,6 +61,12 @@ function LazyLock:Initialize()
     if LazyLockDB.LTCounter == nil then
         LazyLockDB.LTCounter = 0
     end
+	if LazyLockDB.impAutoAttack == nil then
+		LazyLockDB.impAutoAttack = false
+	end
+	if LazyLockDB.debugPrint == nil then
+		LazyLockDB.debugPrint = true
+	end
 	
 	if LazyLock.Settings == nil then
 		LazyLock.Settings = {}
@@ -77,9 +83,11 @@ function LazyLock:Initialize()
 	-- Print Status Report
 	local drainStatus = LazyLockDB.drainSoulMode and "|cff00ff00ON|r" or "|cffff0000OFF|r"
 	local logStatus = LazyLockDB.logging and "|cff00ff00ON|r" or "|cffff0000OFF|r"
+	local impStatus = LazyLockDB.impAutoAttack and "|cff00ff00ON|r" or "|cffff0000OFF|r"
+	local printStatus = LazyLockDB.debugPrint and "|cff00ff00ON|r" or "|cffff0000OFF|r"
 	
 	LazyLock:Print("LazyLock loaded. Type /ll help for commands.")
-	LazyLock:Print("Status: Drain Soul Mode ["..drainStatus.."] | Logging ["..logStatus.."]")
+	LazyLock:Print("Status: Drain Soul Mode ["..drainStatus.."] | Imp Auto-Attack ["..impStatus.."] | Logging ["..logStatus.."] | Print ["..printStatus.."]")
 
 	-- Find Wand Slot (for IsAutoRepeatAction)
 	LazyLock.WandSlot = nil
@@ -105,7 +113,9 @@ function LazyLock:Print(msg)
 	if LazyLockDB and LazyLockDB.Log and LazyLockDB.logging then
 		table.insert(LazyLockDB.Log, date("%c")..": "..tostring(msg))
 	end
-	DEFAULT_CHAT_FRAME:AddMessage(msg)
+	if LazyLockDB and LazyLockDB.debugPrint then
+		DEFAULT_CHAT_FRAME:AddMessage(msg)
+	end
 end
 
 function LazyLock:CheckState()
@@ -240,6 +250,7 @@ LazyLock:SetScript("OnEvent", function()
 	elseif event == "SPELLCAST_CHANNEL_UPDATE" then
 		if arg1 == 0 then LazyLock.Settings["IsCasting"] = false end
 	elseif event == "CHAT_MSG_SPELL_PERIODIC_CREATURE_DAMAGE" then 		-- when dots land on mobs
+		LazyLock:ParseCombatMessage(arg1) -- Parse Damage
 		if string.find(arg1,"afflicted") then
 			for curse,_ in pairs(LazyLock.Settings) do
 				if string.find(arg1,curse) then
@@ -248,7 +259,9 @@ LazyLock:SetScript("OnEvent", function()
 			end
 		end
 	elseif event == "CHAT_MSG_SPELL_PERIODIC_FRIENDLYPLAYER_DAMAGE" then
+        -- Maybe we want to parse this too? Unlikely for Warlock DPS.
 	elseif event == "CHAT_MSG_SPELL_PERIODIC_HOSTILEPLAYER_DAMAGE" then
+		LazyLock:ParseCombatMessage(arg1) -- Parse PvP DoTs
 	elseif event == "CHAT_MSG_SPELL_SELF_DAMAGE" or event == "CHAT_MSG_SPELL_PERIODIC_SELF_DAMAGE" then
 		LazyLock:ParseCombatMessage(arg1)
         LazyLock:ParseSelfDamage(arg1)
@@ -264,6 +277,13 @@ LazyLock:SetScript("OnEvent", function()
 		-- Format: "X dies."
 		local targetName = LazyLock.TargetTracker.name
 		if targetName and targetName ~= "" and string.find(arg1, targetName) then
+            -- Fix: Verify it is OUR target that died (prevent same-name false positives)
+            if UnitExists("target") and UnitName("target") == targetName and not UnitIsDead("target") then
+                -- We are targeting a Mob with this name, but it is NOT dead. 
+                -- This death message must belong to another mob nearby. Ignore it.
+                return
+            end
+
 			local dmg = LazyLock.TargetTracker.damageDone
 			if dmg > 0 then
 				-- Removed confusing 'My Damage' print. Now relying on Report() for accurate breakdown.
@@ -320,7 +340,13 @@ if pClass == "WARLOCK" then
 			if args == "on" then LazyLockDB.logging = true
 			elseif args == "off" then LazyLockDB.logging = false
 			else LazyLockDB.logging = not LazyLockDB.logging end
-			LazyLock:Print("LazyLock Logging: "..(LazyLockDB.logging and "ON" or "OFF"))
+			LazyLock:Print("LazyLock Logging: "..(LazyLockDB.logging and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+		
+		elseif cmd == "print" then
+			if args == "on" then LazyLockDB.debugPrint = true
+			elseif args == "off" then LazyLockDB.debugPrint = false
+			else LazyLockDB.debugPrint = not LazyLockDB.debugPrint end
+			LazyLock:Print("LazyLock Debug Print: "..(LazyLockDB.debugPrint and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
 		
 		elseif cmd == "test" then
 			local state
@@ -344,6 +370,12 @@ if pClass == "WARLOCK" then
 			elseif args == "off" then LazyLockDB.drainSoulMode = false
 			else LazyLockDB.drainSoulMode = not LazyLockDB.drainSoulMode end
 			LazyLock:Print("LazyLock Drain Soul Mode: "..(LazyLockDB.drainSoulMode and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+
+		elseif cmd == "imp" then
+			if args == "on" then LazyLockDB.impAutoAttack = true
+			elseif args == "off" then LazyLockDB.impAutoAttack = false
+			else LazyLockDB.impAutoAttack = not LazyLockDB.impAutoAttack end
+			LazyLock:Print("LazyLock Imp Auto-Attack: "..(LazyLockDB.impAutoAttack and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
 		
 		elseif cmd == "clear" then
 			if LazyLockDB.Log then
@@ -361,12 +393,14 @@ if pClass == "WARLOCK" then
 			LazyLock:Print("/ll check - Run consumable check manually")
 			LazyLock:Print("/ll curse [name] - Set default curse")
 			LazyLock:Print("/ll drain [on/off] - Toggle Drain Soul mode (shard farming)")
+			LazyLock:Print("/ll imp [on/off] - Toggle Imp Auto-Attack")
 			LazyLock:Print("/ll say [on/off] - Toggle report to Say channel")
 			
 			LazyLock:Print("|cff71d5ffLazyLock Debug:|r")
 			LazyLock:Print("/ll clear - Clear all debug logs")
 			LazyLock:Print("/ll export - Show gathered stats")
 			LazyLock:Print("/ll log [on/off] - Toggle persistent logging")
+			LazyLock:Print("/ll print [on/off] - Toggle chat output")
 			LazyLock:Print("/ll puke - Show last fight report (Chat)")
 			LazyLock:Print("/ll test [on/off] - Toggle ALL logging (Debug + CombatLog) for testing")
 		elseif cmd == "save" then

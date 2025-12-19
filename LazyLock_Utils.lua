@@ -90,8 +90,10 @@ function LazyLock:GetDebuffTimeRemaining(unit, name)
 			if timeLeft and timeLeft > 0 then
 				local remaining = timeLeft - GetTime()
 				return remaining > 0 and remaining or 0
+			else
+				-- Fix: If unit has debuff but no time info (1.12), assume it is active
+				return 10 
 			end
-			return 0
 		end
 		i = i + 1
 	end
